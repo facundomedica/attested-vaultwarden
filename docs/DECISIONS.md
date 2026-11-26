@@ -550,8 +550,8 @@ TLS-ALPN-01 through it with CNAME → gateway domain and TXT →
 **instance ID**:443 (Let's Encrypt multi-vantage validation vs.
 per-app load balancing). Port 80 is not routable on Phala
 (networking/specifications.md), hence HTTP-01 disabled. Caddy (rather
-than lego) for TLS-ALPN-01 behind the gateway is UNCONFIRMED until the live
-run.
+than lego) for TLS-ALPN-01 behind the gateway: **confirmed 2026-11-26**
+(D-043).
 
 ### D-040 Phala KMS and storage
 RTMR3 `key-provider` payload: `{"name":"kms","id":"<hex KMS root pubkey>"}`
@@ -599,3 +599,46 @@ images are pinned by digest), root code before the containers (pinned and
 reviewed), and verifiers cannot pull the image (they can rebuild it: the
 pushed digest `sha256:bf0734c5…` of commit `f2636a0` was reproduced
 independently on 2026-11-26).
+
+---
+
+## M3 live run (2026-11-26)
+
+### D-043 First live deployment on Phala: what actually happened
+CVM `0b862054-77c4-436f-bb58-6a1d77f68dbe`, app ID
+`5d1ee425c4437fe253becff6ebc96b7ca0d7146a`, `tdx.small`, `dstack-0.6.5`
+(os_image_hash `4771a29e…`), node prod5, Phala KMS, $0.0608/h.
+
+1. **Phala CLI 1.2.9 broken** on npm (imports `@noble/curves/ed25519`, pins
+   2.4.0 which only exports `./ed25519.js`); 1.2.8 works.
+2. **CLI injects your SSH key**: with a pre-launch script and without
+   `--no-dev-os`, it reads `~/.ssh/id_*.pub` into encrypted env
+   `DSTACK_AUTHORIZED_KEYS`. Our `Config` check would reject that env name.
+3. **First boot failed**: `docker login` → `mkdir /root/.docker: read-only
+   file system`. Fix: `export DOCKER_CONFIG=/tmp/.docker` in the script (as
+   Phala's default script does). A failed CVM stays stopped after an
+   update; `phala cvms start`.
+4. **Custom domain**: TXT must be `<app-id>:443` and the domain must be bound
+   with `phala domains add`; without the binding the front proxy closes the
+   connection after the ClientHello. With it, raw TLS reaches Caddy and Let's
+   Encrypt issued `CN=vault.facundo.dev` (issuer YE2) via TLS-ALPN-01 within
+   a minute. Confirms D-009/D-039 on Phala.
+5. **New RTMR3 event `storage-encrypted`** (dstack 0.6.5): payload `1` if
+   the data disk is LUKS-encrypted, `0` if not (dstack
+   docs/tutorials/attestation-verification.md). The verifier failed closed
+   on the unknown name; it now requires `1` when present and fails on `0`.
+6. **Phala app-compose is manifest v3**: `init_script` is a list (empty);
+   `features: ["kms","tproxy-net"]`, `port_policy` 443 + 8090 (guest agent),
+   `storage_fs: zfs`, `public_tcbinfo: true`. The served compose and
+   pre-launch script are byte-identical to our rendered files.
+7. **PCK flags** on this Phala host: SMT, dynamic platform and cached keys
+   all set (as on the dstack fixture), TCB UpToDate.
+8. **Result**: `attested-vw-verify https://vault.facundo.dev --policy
+   policy/2026.11.0-phala-dev.toml` → PASS (all 11 checks); the live relay
+   demo → FAIL on the TLS key binding (both attempts). Outputs in
+   `demo/live/*.expected.txt`, `demo/relay/relay-live.expected.txt`.
+
+Caveat recorded in the policy header: MRTD/RTMR0-2 were taken from the live
+quote, not reproduced with `dstack-mr`, so this release does not support
+claim C2. Logs are off on this deployment; future dev deployments enable
+them (maintainer's preference).

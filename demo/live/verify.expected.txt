@@ -1,0 +1,16 @@
+Target:  https://vault.facundo.dev
+Policy:  release 2026.11.0-phala-dev
+Platform: tdx
+  (TLS trust roots: Mozilla WebPKI (webpki-roots))
+  ✓ TLS connection, certificate validated: TLSv1_3 to vault.facundo.dev:443, certificate valid for host; leaf SPKI SHA-256 bcc603a6ba95d56d1f7d4481516b0fa27dc6bb1efa7f0713d11268dbaa1fb52d
+  ✓ Fetch attestation over same connection: same TLS connection, 19320 bytes
+  ✓ TLS key bound to attestation: attested SPKI equals the certificate we received
+  ✓ Freshness nonce: server echoed our fresh nonce
+  ✓ Hardware evidence signature, TCB, debug off: Intel DCAP quote signature and collateral valid, TCB UpToDate, TD debug off
+  ✓ report_data matches nonce + TLS key: signed report_data = SHA-512(tag ‖ our nonce ‖ our TLS SPKI)
+  ✓ Firmware / OS measurements: MRTD, RTMR0-2 equal the values pinned by release 2026.11.0-phala-dev
+  ✓ Runtime event log (RTMR3 replay): 11 RTMR3 events replay to the quoted RTMR3; app-id 5d1ee425c4437fe253becff6ebc96b7ca0d7146a, key-provider {"name":"kms","id":"3059301306072a8648ce3d020106082a8648ce3d03010703420004e8e325a477b0bf22800dc927a46c68638938d283fe73d1f9028eeac7028193f3470122193875f598b7addc503e534712ab437b4120776bbac32ddf8897f844ee"}, data disk encrypted
+  ✓ Compose hash (published software): measured = SHA-256(served app-compose) = 17129f0b673bce026e0f87384df17adbc8c9e603bca28db0ed82e5ea6c5a1948 = release 2026.11.0-phala-dev
+  ✓ Measured config is self-contained: pre-launch script, init script and encrypted env names exactly as the policy pins; no variable interpolation
+  ✓ Images pinned and allowlisted: 3 services, all pinned by digest and allowlisted
+Result:  PASS

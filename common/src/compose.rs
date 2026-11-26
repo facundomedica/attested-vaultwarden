@@ -162,8 +162,13 @@ pub fn config_problems(
             }
         }
     }
-    if text("init_script")?.is_some() {
-        out.push("app-compose has a non-empty `init_script`".into());
+    // `init_script` is a string in older manifests and a list of platform
+    // init scripts (e.g. "docker_cleanup") in Phala's manifest v3.
+    match v.get("init_script") {
+        None | Some(serde_json::Value::Null) => {}
+        Some(serde_json::Value::Array(a)) if a.is_empty() => {}
+        Some(serde_json::Value::String(s)) if s.trim().is_empty() => {}
+        Some(other) => out.push(format!("app-compose has init scripts: {other}")),
     }
     let mut got: Vec<String> = match v.get("allowed_envs") {
         None | Some(serde_json::Value::Null) => Vec::new(),
@@ -349,6 +354,11 @@ mod tests {
         })
         .to_string();
         assert!(config_problems(&clean, None, &[]).unwrap().is_empty());
+        let v3 = serde_json::json!({"docker_compose_file": "services: {}\n", "init_script": []})
+            .to_string();
+        assert!(config_problems(&v3, None, &[]).unwrap().is_empty());
+        let v3i = serde_json::json!({"docker_compose_file": "services: {}\n", "init_script": ["env_merge"]}).to_string();
+        assert_eq!(config_problems(&v3i, None, &[]).unwrap().len(), 1);
 
         let script = "docker login ghcr.io";
         let with_script = serde_json::json!({

@@ -291,3 +291,28 @@ fn compose_hash_after_boot_rejected() {
             .contains("more than one")
     );
 }
+
+#[test]
+fn storage_encrypted_event() {
+    let ev = |n: &str, p: &[u8]| RuntimeEvent {
+        name: n.into(),
+        payload: p.to_vec(),
+    };
+    let base = |enc: &[u8]| {
+        vec![
+            ev("app-id", &[1; 20]),
+            ev("compose-hash", &[2; 32]),
+            ev("boot-mr-done", &[]),
+            ev("key-provider", b"{}"),
+            ev("storage-fs", b"zfs"),
+            ev("storage-encrypted", enc),
+        ]
+    };
+    assert_eq!(
+        rtmr3_facts(&base(b"1")).unwrap().storage_encrypted,
+        Some(true)
+    );
+    let e = rtmr3_facts(&base(b"0")).unwrap_err();
+    assert!(e.to_string().contains("NOT encrypted"), "{e}");
+    assert!(rtmr3_facts(&base(b"yes")).is_err());
+}

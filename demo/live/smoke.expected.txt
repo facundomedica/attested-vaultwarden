@@ -1,0 +1,7 @@
+  ✓ certificate issued by Let's Encrypt (issuer=C=US, O=Let's Encrypt, CN=YE2)
+  ✓ /alive 200
+  ✓ web vault 200
+  ✓ admin panel disabled (notice shown, POST /admin 404)
+  ✓ attestation rejects bad nonce (400)
+  ✓ server reports version 2026.6.0
+smoke: 0 failure(s)

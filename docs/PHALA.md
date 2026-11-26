@@ -98,8 +98,12 @@ phala deploy -c deploy/dstack/.generated/docker-compose.yml \
   it before anything runs. After deploying, `phala cvms get <id>
   --include-compose --json` shows the exact document.
 
-Flag names come from the CLI source (UNCONFIRMED until run: if any is
-rejected, paste me the error).
+CLI notes from the live run: use **phala CLI 1.2.8**; the 1.2.9 npm package
+crashes at startup (`ERR_PACKAGE_PATH_NOT_EXPORTED` for `@noble/curves/ed25519`).
+`--prepare-only` exists only for *updates*, so for a new CVM read the hash
+after deploying with `phala cvms get <id> --include-compose --json`.
+In development, deploy with logs enabled (omit `--no-public-logs`): with
+logs off, even the owner cannot read container logs.
 
 ## 4. Deploy (you)
 
@@ -107,23 +111,30 @@ Re-run step 3 without `--prepare-only` (or commit the prepared deployment as
 the CLI suggests). Note the **instance ID** and the **gateway domain** shown
 by `phala cvms get <id> --json` / the dashboard.
 
-## 5. DNS for the custom domain (you)
+## 5. Bind the domain and publish DNS
+
+```bash
+phala domains add vault.<your-domain> --cvm-id <cvm-id>
+```
+
+prints the records. **(you)** at your DNS provider:
 
 | Record | Name | Value |
 |--------|------|-------|
-| CNAME | `vault.<your-domain>` | `<gateway-domain>` (e.g. `gateway.dstack-prod5.phala.network`, from the dashboard) |
-| TXT | `_dstack-app-address.vault.<your-domain>` | `<instance-id>:443` |
-| CAA (optional) | `vault.<your-domain>` | `0 issue "letsencrypt.org; validationmethods=tls-alpn-01"` |
+| CNAME | `vault.<your-domain>` | `gateway.<gateway base domain>` (e.g. `gateway.dstack-pha1-prod5.phala.network`); Cloudflare: **DNS only** |
+| TXT | `_dstack-app-address.vault.<your-domain>` | `<app-id>:443` |
 
-* The TXT record tells the gateway to forward raw TLS for this SNI to the
-  CVM's port 443 (dstack `gateway/src/proxy/tls_passthough.rs`).
-* Use the **instance ID**, not the app ID: Let's Encrypt validates from
-  several vantage points at once, and with an app ID the gateway may spread
-  those connections across instances (dstack-ingress README). Redo the
-  record whenever the instance is replaced.
-* Wait about 30 s for the gateway's TXT cache. Caddy then obtains the
-  certificate with TLS-ALPN-01 from inside the CVM; port 80 is not routable
-  on Phala, so HTTP-01 is disabled in the Caddyfile.
+then `phala domains verify vault.<your-domain> --cvm-id <cvm-id>`.
+
+Observed on the 2026-11-26 run (D-043):
+* Without `phala domains add` the front proxy (`ssl_backend_*`) closes the
+  connection right after the ClientHello: the TXT record alone is not enough.
+* The TXT value is the **app ID**, not the instance ID.
+* With the domain bound, the gateway passes raw TLS to Caddy in the CVM, and
+  Caddy obtained its Let's Encrypt certificate via **TLS-ALPN-01** about a
+  minute later. Phala never sees the private key.
+* `domains check` suggests a CAA `0 issue "letsencrypt.org"` record;
+  optional (and later: pin `accounturi` to the CVM's ACME account).
 
 ## 6. Write the release policy
 

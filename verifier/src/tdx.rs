@@ -35,6 +35,9 @@ pub const KNOWN_RTMR3_EVENTS: &[&str] = &[
     "os-image-hash",
     "key-provider",
     "storage-fs",
+    // dstack 0.6.5+: `1` if the data disk is LUKS-encrypted, `0` if not
+    // (dstack docs/tutorials/attestation-verification.md, system_setup.rs).
+    "storage-encrypted",
     "system-ready",
 ];
 
@@ -252,6 +255,9 @@ pub struct Rtmr3Facts {
     pub compose_hash: [u8; 32],
     pub app_id: Vec<u8>,
     pub key_provider: String,
+    /// `Some(true)` if the OS measured an encrypted data disk; `None` on
+    /// images that predate the `storage-encrypted` event.
+    pub storage_encrypted: Option<bool>,
 }
 
 fn single<'a>(events: &'a [RuntimeEvent], name: &str) -> Result<&'a RuntimeEvent, TdxError> {
@@ -286,9 +292,35 @@ pub fn rtmr3_facts(events: &[RuntimeEvent]) -> Result<Rtmr3Facts, TdxError> {
     let kp = single(events, "key-provider")?;
     let key_provider = String::from_utf8(kp.payload.clone())
         .map_err(|_| TdxError::Events("`key-provider` payload is not UTF-8".into()))?;
+    let storage_encrypted = match events
+        .iter()
+        .filter(|e| e.name == "storage-encrypted")
+        .count()
+    {
+        0 => None,
+        1 => match single(events, "storage-encrypted")?.payload.as_slice() {
+            b"1" => Some(true),
+            b"0" => {
+                return Err(TdxError::Events(
+                    "`storage-encrypted` is 0: the data disk is NOT encrypted, the host can read it".into(),
+                ));
+            }
+            _ => {
+                return Err(TdxError::Events(
+                    "`storage-encrypted` payload is not 0 or 1".into(),
+                ));
+            }
+        },
+        _ => {
+            return Err(TdxError::Events(
+                "more than one `storage-encrypted` event".into(),
+            ));
+        }
+    };
     Ok(Rtmr3Facts {
         compose_hash,
         app_id,
         key_provider,
+        storage_encrypted,
     })
 }

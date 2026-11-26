@@ -1,0 +1,28 @@
+ Network avw-relay-live_default Creating 
+ Network avw-relay-live_default Created 
+ Volume avw-relay-live_relay_data Creating 
+ Volume avw-relay-live_relay_data Created 
+ Container avw-relay-live-relay-1 Creating 
+ Container avw-relay-live-relay-1 Created 
+ Container avw-relay-live-relay-1 Starting 
+ Container avw-relay-live-relay-1 Started 
+ avw-relay-live-relay-1 Copying avw-relay-live-relay-1:/data/caddy/pki/authorities/local/root.crt to /Users/facundo/Documents/projects/experiments/attested-vaultwarden/demo/relay/.relay-root.crt
+ avw-relay-live-relay-1 Copied avw-relay-live-relay-1:/data/caddy/pki/authorities/local/root.crt to /Users/facundo/Documents/projects/experiments/attested-vaultwarden/demo/relay/.relay-root.crt
+Target:  https://localhost:9443
+Policy:  release 2026.11.0-phala-dev
+Platform: tdx
+  (TLS trust roots: custom CA file only (NOT WebPKI))
+  (first attempt failed on the TLS key binding; retried once on a new connection)
+  ✓ TLS connection, certificate validated: TLSv1_3 to localhost:9443, certificate valid for host; leaf SPKI SHA-256 acfc5050cbaec7f8c66452fec3c26ded37e54e5aa596c3abaff863cf60dce467
+  ✓ Fetch attestation over same connection: same TLS connection, 19320 bytes
+  ✗ TLS key bound to attestation: attestation is for TLS key bcc603a6ba95d56d1f7d4481516b0fa27dc6bb1efa7f0713d11268dbaa1fb52d but this connection uses acfc5050cbaec7f8c66452fec3c26ded37e54e5aa596c3abaff863cf60dce467: the TLS endpoint is not the attested server (relay?) or the certificate just rotated
+  ✓ Freshness nonce: server echoed our fresh nonce
+  ✓ Hardware evidence signature, TCB, debug off: Intel DCAP quote signature and collateral valid, TCB UpToDate, TD debug off
+  ✗ report_data matches nonce + TLS key: signed report_data does not match our nonce and TLS key
+  ✓ Firmware / OS measurements: MRTD, RTMR0-2 match the published OS image of release 2026.11.0-phala-dev
+  ✓ Runtime event log (RTMR3 replay): 11 RTMR3 events replay to the quoted RTMR3; app-id 5d1ee425c4437fe253becff6ebc96b7ca0d7146a, key-provider {"name":"kms","id":"3059301306072a8648ce3d020106082a8648ce3d03010703420004e8e325a477b0bf22800dc927a46c68638938d283fe73d1f9028eeac7028193f3470122193875f598b7addc503e534712ab437b4120776bbac32ddf8897f844ee"}, data disk encrypted
+  ✓ Compose hash (published software): measured = SHA-256(served app-compose) = 17129f0b673bce026e0f87384df17adbc8c9e603bca28db0ed82e5ea6c5a1948 = release 2026.11.0-phala-dev
+  ✓ Measured config is self-contained: pre-launch script, init script and encrypted env names exactly as the policy pins; no variable interpolation
+  ✓ Images pinned and allowlisted: 3 services, all pinned by digest and allowlisted
+Result:  FAIL
+verifier exit 1 (expected 1: TLS key binding must fail)

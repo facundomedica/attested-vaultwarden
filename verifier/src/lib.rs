@@ -438,7 +438,7 @@ fn check_tdx_measurements(
         report.pass(
             CheckId::Measurements,
             format!(
-                "MRTD, RTMR0-2 match the published OS image of release {}",
+                "MRTD, RTMR0-2 equal the values pinned by release {}",
                 policy.release
             ),
         );
@@ -491,10 +491,14 @@ fn check_tdx_measurements(
         report.pass(
             CheckId::EventLog,
             format!(
-                "{} RTMR3 events replay to the quoted RTMR3; app-id {}, key-provider {}",
+                "{} RTMR3 events replay to the quoted RTMR3; app-id {}, key-provider {}, data disk {}",
                 events.len(),
                 hex::encode(&facts.app_id),
-                facts.key_provider
+                facts.key_provider,
+                match facts.storage_encrypted {
+                    Some(true) => "encrypted",
+                    _ => "encryption not reported by this OS image",
+                }
             ),
         );
         Some(facts.compose_hash)
