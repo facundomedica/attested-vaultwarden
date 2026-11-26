@@ -440,3 +440,58 @@ signatures over public data; there is no secret for a timing channel to
 leak. Ignored in `deny.toml` and `.cargo/audit.toml` with that reason;
 re-evaluate when `sev` updates. `option-ext` (MPL-2.0, via sev→dirs) allowed
 as a single-crate licence exception.
+
+---
+
+## M3 prep decisions (2026-11-26)
+
+### D-031 Self-hosted routing: direct port mapping, no gateway
+On a self-hosted dstack host, `vmm-cli.py deploy --port tcp:0.0.0.0:443:443`
+forwards raw TCP from the host to the CVM (D/dstack/vmm/src/vmm-cli.py,
+`--port protocol[:address]:from:to`). TLS terminates in Caddy inside the CVM;
+no dstack-gateway is involved, and `gateway_enabled = false` in the
+app-compose. On Phala Cloud the equivalent is gateway TLS passthrough (D-009).
+
+### D-032 Key provider for the first self-hosted deployment
+Facts (D/dstack/dstack-util/src/system_setup.rs `request_app_keys`):
+`none` → random seed per boot ("generating temporary app keys"), so the
+encrypted data disk is unreadable after a CVM restart; `local` → SGX sealing
+key from the host's local key provider (its measurement goes into the
+RTMR3 `key-provider` event); `tpm` → vTPM seed, which on a self-hosted QEMU
+host is host-emulated and therefore excluded; `kms` → dstack KMS.
+Plan: first live run with `none` (data loss on restart, said loudly), then
+`local` if the rented host has SGX. The policy pins the exact `key-provider`
+payload either way.
+
+### D-033 app-compose for dstack
+`deploy/dstack/render.sh` writes the same manifest-v2 structure as
+`vmm-cli.py compose` (`create_app_compose`: `manifest_version`, `name`,
+`runner`, `docker_compose_file`, `kms_enabled`, `gateway_enabled`,
+`local_key_provider_enabled`, `key_provider_id`, `public_logs`,
+`public_sysinfo`, `allowed_envs`, `no_instance_id`, `secure_time`,
+`key_provider`), serialised with `json.dumps(indent=4)`. Byte-exact
+equality with vmm-cli output is not required: dstack hashes whatever file
+it is given, and the policy pins that hash. `public_logs = false` so
+container logs (client IPs, icon domains) are not exported by the guest's
+external API. The sidecar reads the measured document from `Info.tcb_info`
+(`app_compose` field, D/docs/guest-api-v0.md "Info").
+
+### D-034 Simulator results
+dstack's guest-agent simulator (crate `dstack-guest-agent-simulator`, commit
+`73b10c6`) builds in Docker (`deploy/dstack/simulator/Dockerfile`, with
+`rust-toolchain.toml` removed to use our pinned Rust 1.97 image). Through
+it, the sidecar's v0 `/Info` and `/GetQuote` calls work end to end; the
+verifier fetches live Intel collateral for the recorded quote and FAILs with
+"ISV enclave report signature is invalid", because the simulator patches
+`report_data` into a quote it cannot re-sign. That is the expected and
+desired outcome. The upstream `phalanetwork/dstack-simulator` Docker image
+was not used (not found on Docker Hub, D-016).
+
+### D-035 Reproducible sidecar build (implements D-021)
+`attest-sidecar/reproducible-build.sh [--check] [commit]`: context =
+`git archive <commit>`; `SOURCE_DATE_EPOCH` = commit time; `RUSTFLAGS`
+remap `/src` and `/usr/local/cargo` and strip symbols; `cargo --locked`;
+`docker buildx --no-cache --provenance=false --sbom=false --output
+type=oci,rewrite-timestamp=true`; digest = first manifest in the OCI
+`index.json`. Release target is `linux/amd64` (CI job); local checks on an
+ARM Mac use `PLATFORM=linux/arm64` because amd64 would run under emulation.
