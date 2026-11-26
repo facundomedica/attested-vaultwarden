@@ -1,7 +1,15 @@
-# Build context: repository root.
-#   docker build -f attest-sidecar/Dockerfile -t attest-sidecar .
-# Base images pinned by digest (resolved 2026-11-26, see docs/DECISIONS.md D-021).
+# Reproducible build of the attestation sidecar. Build context: a
+# `git archive` of the repository at one commit (see
+# attest-sidecar/reproducible-build.sh), never a dirty working tree.
+#
+# Determinism: digest-pinned base images, `cargo --locked`, paths remapped
+# out of the binary, SOURCE_DATE_EPOCH = commit time (BuildKit then clamps
+# file and layer timestamps with `rewrite-timestamp=true`).
 FROM docker.io/library/rust:1.97-slim-bookworm@sha256:2775a09d208ff0d7c1f50490c45b62db929e87ba1dcbc3f2132ac71a704bcdd3 AS build
+ARG SOURCE_DATE_EPOCH
+ENV SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH} \
+    CARGO_INCREMENTAL=0 \
+    RUSTFLAGS="--remap-path-prefix=/src=/build --remap-path-prefix=/usr/local/cargo=/cargo -C strip=symbols"
 WORKDIR /src
 COPY . .
 RUN cargo build --release --locked -p attest-sidecar

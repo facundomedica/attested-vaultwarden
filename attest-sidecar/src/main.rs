@@ -12,13 +12,15 @@
 //! | `ATTEST_INSECURE_MOCK` | must be `1` for `mock` to start |
 //! | `ATTEST_LISTEN` | listen address, default `0.0.0.0:8081` |
 //! | `ATTEST_CERT_PATH` | PEM file whose first certificate is the TLS leaf |
-//! | `ATTEST_APP_COMPOSE_PATH` | measured app-compose document (mock only) |
+//! | `ATTEST_APP_COMPOSE_PATH` | measured app-compose document (mock only; dstack reads it from the guest agent) |
+//! | `ATTEST_DSTACK_SOCKET` | guest agent socket, default `/var/run/dstack.sock` |
 //! | `ATTEST_RATE_PER_SEC` | global request budget per second, default 5 |
 
 #![forbid(unsafe_code)]
 #![cfg_attr(test, allow(clippy::panic, clippy::unwrap_used, clippy::expect_used))]
 
 mod app;
+mod dstack;
 mod providers;
 
 use std::net::SocketAddr;
@@ -67,7 +69,18 @@ async fn run() -> Result<(), String> {
                 .map_err(|e| format!("app-compose: {e}"))?;
             app::router(Arc::new(state))
         }
-        "dstack" => return Err("ATTEST_PLATFORM=dstack is not implemented yet (M3)".into()),
+        "dstack" => {
+            let socket = std::env::var("ATTEST_DSTACK_SOCKET")
+                .unwrap_or_else(|_| dstack::DEFAULT_SOCKET.to_owned());
+            let provider = dstack::Dstack::new(socket);
+            let app_compose = provider
+                .app_compose()
+                .await
+                .map_err(|e| format!("reading app-compose from guest agent: {e}"))?;
+            let state = app::State::new(provider, cert_path, app_compose, rate)
+                .map_err(|e| format!("app-compose: {e}"))?;
+            app::router(Arc::new(state))
+        }
         other => return Err(format!("unknown ATTEST_PLATFORM `{other}`")),
     };
 

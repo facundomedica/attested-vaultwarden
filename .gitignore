@@ -3,3 +3,5 @@
 *.env.local
 .DS_Store
 deploy/local/.generated/
+deploy/dstack/.generated/
+deploy/dstack/simulator/.generated/

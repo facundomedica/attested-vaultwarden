@@ -13,12 +13,17 @@ publish.workspace = true
 attested-vw-common.workspace = true
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json"] }
 base64.workspace = true
+bytes = "1"
+hex.workspace = true
+http-body-util = "0.1"
+hyper = { version = "1", default-features = false, features = ["client", "http1"] }
+hyper-util = { version = "0.1", default-features = false, features = ["tokio"] }
+serde.workspace = true
 serde_json.workspace = true
 time = { version = "0.3", features = ["formatting"] }
 tokio.workspace = true
 
 [dev-dependencies]
-http-body-util = "0.1"
 tower = { version = "0.5", default-features = false, features = ["util"] }
 
 [lints]

@@ -1,0 +1,34 @@
+# Simulator config: sockets in a shared volume, our app-compose served.
+[default]
+workers = 2
+max_blocking = 8
+ident = "dstack Simulator"
+temp_dir = "/tmp"
+keep_alive = 10
+log_level = "info"
+
+[default.core]
+keys_file = "/sim/appkeys.json"
+compose_file = "/etc/attest/app-compose.json"
+sys_config_file = "/sim/sys-config.json"
+data_disks = ["/"]
+
+[default.core.simulator]
+attestation_file = "/sim/attestation.bin"
+patch_report_data = true
+
+[internal-v0]
+address = "unix:/var/run/dstack/tappd.sock"
+reuse = true
+
+[internal]
+address = "unix:/var/run/dstack/dstack.sock"
+reuse = true
+
+[external]
+address = "unix:/var/run/dstack/external.sock"
+reuse = true
+
+[guest-api]
+address = "unix:/var/run/dstack/guest.sock"
+reuse = true

@@ -1,0 +1,92 @@
+# Attested Vaultwarden on dstack (Intel TDX).
+#
+# Rendered by deploy/dstack/render.sh, which substitutes __DOMAIN__ and
+# __ATTEST_IMAGE__ and wraps the result into app-compose.json. dstack
+# measures SHA-256(app-compose.json) into RTMR3 (`compose-hash`), so EVERY
+# behaviour-affecting setting is literal here. Encrypted env values are not
+# measured and are not used (allowed_envs = []).
+#
+# TLS: the CVM's port 443 is exposed by the host as raw TCP (vmm `--port
+# tcp:0.0.0.0:443:443`, or dstack-gateway TLS passthrough). Caddy generates
+# the key inside the CVM and obtains the certificate with TLS-ALPN-01 from
+# inside the CVM; the host only ever sees ciphertext.
+name: attested-vaultwarden
+
+services:
+  vaultwarden:
+    image: docker.io/vaultwarden/server@sha256:4fe17f415f90087377d37c755e0ea3cf189dcc6794e49cdd2a9adbb4937d9e1f # 1.37.5
+    restart: unless-stopped
+    environment:
+      DOMAIN: "https://__DOMAIN__"
+      SIGNUPS_ALLOWED: "false"
+      INVITATIONS_ALLOWED: "true"
+      DISABLE_ICON_DOWNLOAD: "true"
+      ICON_CACHE_TTL: "0"
+      ICON_SERVICE: "internal"
+      PUSH_ENABLED: "false"
+      SSO_ENABLED: "false"
+      PASSWORD_HINTS_ALLOWED: "false"
+      SHOW_PASSWORD_HINT: "false"
+      ORG_CREATION_USERS: "none"
+      IP_HEADER: "X-Forwarded-For"
+      LOG_LEVEL: "warn"
+      # ADMIN_TOKEN deliberately unset: admin panel disabled (DECISIONS D-008).
+      # SMTP not configured: invitations are accepted via the invite link.
+    volumes:
+      - vw_data:/data
+
+  proxy:
+    image: docker.io/library/caddy@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0 # 2.11.9-alpine
+    restart: unless-stopped
+    ports:
+      - "443:443"
+    configs:
+      - source: caddyfile
+        target: /etc/caddy/Caddyfile
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+
+  attest:
+    image: __ATTEST_IMAGE__
+    restart: unless-stopped
+    user: "0:0"
+    cap_drop: [ALL]
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      ATTEST_PLATFORM: "dstack"
+      ATTEST_LISTEN: "0.0.0.0:8081"
+      ATTEST_CERT_PATH: "/caddy/caddy/certificates/acme-v02.api.letsencrypt.org-directory/__DOMAIN__/__DOMAIN__.crt"
+      ATTEST_DSTACK_SOCKET: "/var/run/dstack.sock"
+    volumes:
+      - caddy_data:/caddy:ro
+      - /var/run/dstack.sock:/var/run/dstack.sock
+
+configs:
+  caddyfile:
+    content: |
+      {
+        admin off
+      }
+      __DOMAIN__ {
+        # One pinned issuer, so the sidecar knows where the leaf lives.
+        # TLS-ALPN-01 only: port 80 is not exposed.
+        tls {
+          issuer acme {
+            dir https://acme-v02.api.letsencrypt.org/directory
+            disable_http_challenge
+          }
+        }
+        handle /.well-known/tee-attestation {
+          reverse_proxy attest:8081
+        }
+        handle {
+          reverse_proxy vaultwarden:80
+        }
+      }
+
+volumes:
+  vw_data:
+  caddy_data:
+  caddy_config:

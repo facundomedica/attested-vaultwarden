@@ -1,0 +1,53 @@
+# Integration test: sidecar (Dstack provider) against the dstack simulator.
+# Rendered into .generated/ by e2e.sh (sidecar image pinned by digest).
+name: avw-sim
+
+services:
+  simulator:
+    image: avw-dstack-simulator:73b10c6
+    volumes:
+      - dstack_run:/var/run/dstack
+      - ./app-compose.json:/etc/attest/app-compose.json:ro
+
+  proxy:
+    image: docker.io/library/caddy@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0
+    ports:
+      - "127.0.0.1:8444:443"
+    configs:
+      - source: caddyfile
+        target: /etc/caddy/Caddyfile
+    volumes:
+      - caddy_data:/data
+
+  attest:
+    image: __ATTEST_IMAGE__
+    depends_on: [simulator]
+    restart: on-failure
+    user: "0:0"
+    cap_drop: [ALL]
+    read_only: true
+    environment:
+      ATTEST_PLATFORM: "dstack"
+      ATTEST_LISTEN: "0.0.0.0:8081"
+      ATTEST_CERT_PATH: "/caddy/caddy/certificates/local/localhost/localhost.crt"
+      ATTEST_DSTACK_SOCKET: "/var/run/dstack/dstack.sock"
+    volumes:
+      - caddy_data:/caddy:ro
+      - dstack_run:/var/run/dstack
+
+configs:
+  caddyfile:
+    content: |
+      {
+        admin off
+        skip_install_trust
+        auto_https disable_redirects
+      }
+      localhost {
+        tls internal
+        reverse_proxy /.well-known/tee-attestation attest:8081
+      }
+
+volumes:
+  dstack_run:
+  caddy_data:
