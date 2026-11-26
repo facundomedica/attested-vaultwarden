@@ -57,6 +57,11 @@ that the verifier reports the mock (exit 2, never PASS), refuses it without
 and against a policy with a different compose hash. See
 [deploy/local/README.md](deploy/local/README.md).
 
+## Deploying
+
+* Phala Cloud (managed dstack, TDX): [docs/PHALA.md](docs/PHALA.md)
+* Self-hosted dstack: [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md)
+
 ## Verifying a deployment (no live deployment yet)
 
 ```bash

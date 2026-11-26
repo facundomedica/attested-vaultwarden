@@ -5,7 +5,7 @@
 # whole rendered file is wrapped into app-compose.json, whose SHA-256 is what
 # the mock policy pins (nothing measures it locally: INSECURE MOCK).
 #
-# Every behaviour-affecting setting is literal here (no ${VAR} interpolation),
+# Every behaviour-affecting setting is literal here (no variable interpolation),
 # mirroring the dstack rule that only this document is measured.
 name: avw-local
 

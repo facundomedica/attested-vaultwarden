@@ -342,6 +342,20 @@ pub fn check_document(
         ),
     }
 
+    // Nothing outside the measured document may decide what runs.
+    match compose::config_problems(
+        &doc.app_compose,
+        policy.allow_pre_launch_script,
+        policy.allow_env_injection,
+    ) {
+        Err(e) => report.fail(CheckId::Config, e.to_string()),
+        Ok(p) if p.is_empty() => report.pass(
+            CheckId::Config,
+            "no pre-launch/init script, no injected env, no variable interpolation",
+        ),
+        Ok(p) => report.fail(CheckId::Config, p.join("; ")),
+    }
+
     // Images, derived from the (hash-checked) app-compose, never from
     // `image_digests`.
     let imgs = compose::docker_compose_file(&doc.app_compose).and_then(|y| compose::images(&y));

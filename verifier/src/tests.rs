@@ -39,6 +39,9 @@ fn fixture() -> Fixture {
             service: "vaultwarden".into(),
             image: image(),
         }],
+
+        allow_pre_launch_script: false,
+        allow_env_injection: false,
     };
     Fixture {
         nonce: Nonce([9; 32]),
@@ -183,4 +186,22 @@ fn garbage_document_fails() {
     let f = fixture();
     let r = run(&f, b"<html>hello</html>", true);
     assert_eq!(failed(&r), vec![CheckId::Fetch]);
+}
+
+#[test]
+fn pre_launch_script_fails_config_check() {
+    let mut f = fixture();
+    let ac = serde_json::json!({
+        "docker_compose_file": format!("services:\n  vaultwarden:\n    image: {}\n", image()),
+        "pre_launch_script": "docker run --rm evil/image",
+    })
+    .to_string();
+    f.policy.mock = Some(MockPolicy {
+        compose_hash: hex::encode(compose::compose_hash(ac.as_bytes())),
+    });
+    let r = run(&f, &doc(&f, f.nonce, f.spki, &ac), true);
+    assert_eq!(failed(&r), vec![CheckId::Config], "{r}");
+    f.policy.allow_pre_launch_script = true;
+    let r = run(&f, &doc(&f, f.nonce, f.spki, &ac), true);
+    assert!(failed(&r).is_empty(), "{r}");
 }

@@ -125,6 +125,69 @@ pub fn images(compose_yaml: &str) -> Result<Vec<ImageDigest>, ComposeError> {
         .collect())
 }
 
+/// Ways the measured app-compose could make the CVM run something that is
+/// not fully described by the measured document itself. Returns one message
+/// per problem; empty means self-contained.
+pub fn config_problems(
+    app_compose: &str,
+    allow_scripts: bool,
+    allow_env: bool,
+) -> Result<Vec<String>, ComposeError> {
+    let v: serde_json::Value =
+        serde_json::from_str(app_compose).map_err(|e| ComposeError::Json(e.to_string()))?;
+    let mut out = Vec::new();
+    if !allow_scripts {
+        for key in ["pre_launch_script", "init_script"] {
+            match v.get(key) {
+                None | Some(serde_json::Value::Null) => {}
+                Some(serde_json::Value::String(s)) if s.trim().is_empty() => {}
+                Some(_) => out.push(format!(
+                    "app-compose has a non-empty `{key}` (runs code outside the image allowlist)"
+                )),
+            }
+        }
+    }
+    if !allow_env {
+        match v.get("allowed_envs") {
+            None | Some(serde_json::Value::Null) => {}
+            Some(serde_json::Value::Array(a)) if a.is_empty() => {}
+            Some(_) => out.push(
+                "app-compose allows injected env vars (`allowed_envs`), whose values are not measured"
+                    .into(),
+            ),
+        }
+        let yaml = docker_compose_file(app_compose)?;
+        if let Some(line) = interpolation_line(&yaml) {
+            out.push(format!(
+                "docker_compose_file uses `$` variable interpolation (line {line}); values would come from unmeasured env"
+            ));
+        }
+    }
+    Ok(out)
+}
+
+/// First line with compose variable interpolation (`$VAR`, `${VAR}`);
+/// `$$` is a literal dollar and allowed. Deliberately lexical: a `$` in a
+/// YAML comment is rejected too (keep templates free of it) rather than
+/// risk misjudging where a comment starts.
+fn interpolation_line(yaml: &str) -> Option<usize> {
+    for (i, line) in yaml.lines().enumerate() {
+        let b = line.as_bytes();
+        let mut j = 0;
+        while j < b.len() {
+            if b[j] == b'$' {
+                if b.get(j + 1) == Some(&b'$') {
+                    j += 2;
+                    continue;
+                }
+                return Some(i + 1);
+            }
+            j += 1;
+        }
+    }
+    None
+}
+
 /// Result of checking images against an allowlist.
 #[derive(Debug, PartialEq, Eq)]
 pub enum ImageProblem {
@@ -240,6 +303,30 @@ mod tests {
             docker_compose_file("{}"),
             Err(ComposeError::MissingComposeFile)
         );
+    }
+
+    #[test]
+    fn config_problems_detected() {
+        let clean = serde_json::json!({
+            "docker_compose_file": "services: {}\n", "pre_launch_script": "", "allowed_envs": []
+        })
+        .to_string();
+        assert!(config_problems(&clean, false, false).unwrap().is_empty());
+        let script = serde_json::json!({
+            "docker_compose_file": "services: {}\n", "pre_launch_script": "curl x | sh"
+        })
+        .to_string();
+        assert_eq!(config_problems(&script, false, false).unwrap().len(), 1);
+        assert!(config_problems(&script, true, false).unwrap().is_empty());
+        let env = serde_json::json!({
+            "docker_compose_file": "services:\n  a:\n    environment:\n      X: ${SECRET}\n",
+            "allowed_envs": ["SECRET"]
+        })
+        .to_string();
+        assert_eq!(config_problems(&env, false, false).unwrap().len(), 2);
+        assert!(config_problems(&env, false, true).unwrap().is_empty());
+        let literal = serde_json::json!({"docker_compose_file": "x: \"$$HOME\"\n"}).to_string();
+        assert!(config_problems(&literal, false, false).unwrap().is_empty());
     }
 
     #[test]

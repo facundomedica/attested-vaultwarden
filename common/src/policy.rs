@@ -63,6 +63,15 @@ pub struct Policy {
     /// here, pinned by `@sha256:` digest.
     #[serde(default)]
     pub images: Vec<ImagePolicy>,
+    /// Accept a non-empty `pre_launch_script` / `init_script` in the
+    /// app-compose. Default false: scripts can run code and pull images that
+    /// the image allowlist never sees.
+    #[serde(default)]
+    pub allow_pre_launch_script: bool,
+    /// Accept a non-empty `allowed_envs` and `$VAR` interpolation in the
+    /// compose. Default false: injected env values are not measured.
+    #[serde(default)]
+    pub allow_env_injection: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

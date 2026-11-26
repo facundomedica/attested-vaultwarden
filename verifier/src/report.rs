@@ -28,6 +28,9 @@ pub enum CheckId {
     EventLog,
     /// Hash of the measured compose document equals the policy.
     ComposeHash,
+    /// The measured app-compose is self-contained: no launch scripts, no
+    /// injected env, no variable interpolation (unless the policy allows).
+    Config,
     /// Every image in the measured compose is digest-pinned and allowlisted.
     Images,
 }
@@ -44,6 +47,7 @@ impl CheckId {
             CheckId::Measurements => "Firmware / OS measurements",
             CheckId::EventLog => "Runtime event log (RTMR3 replay)",
             CheckId::ComposeHash => "Compose hash (published software)",
+            CheckId::Config => "Measured config is self-contained",
             CheckId::Images => "Images pinned and allowlisted",
         }
     }

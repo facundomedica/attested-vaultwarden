@@ -513,3 +513,63 @@ match for the SEV-SNP stretch target (configfs-tsm + sev-snp-measure).
 Cheaper TDX alternative: dstack's `dstack-cloud` on a GCP C3 confidential VM
 (the dstack guest runs as the cloud CVM; different firmware measurements and
 a vTPM half that GetQuote does not carry).
+
+---
+
+## M3 Phala decisions (2026-11-26)
+
+Maintainer decided: Phala Cloud first (cost), own domain, sidecar image on
+GHCR pushed by hand. Facts below from Phala docs and the CLI source
+(Phala-Network/phala-cloud, CLI v1.2.9) and dstack `next`, read 2026-11-26.
+
+### D-037 Phala writes the app-compose; the policy pins Phala's hash
+`phala deploy --app-compose` exists behind a feature flag, but "the deployed
+bytes and compose hash follow its canonical form, not the file's bytes"
+(cli/docs/deploy.md). So for Phala the policy's `compose_hash` is the value
+Phala reports (`--prepare-only`, provision API, or `phala cvms get
+--include-compose`), and the verifier keeps checking SHA-256(served
+app-compose) against it. `render.sh ... phala` writes only the compose file.
+
+### D-038 No pre-launch script, no env injection: verifier `Config` check
+Phala injects a default `pre_launch_script` unless `--no-pre-launch-script`
+(registry login, image prune, env exports;
+dstack-examples/phala-cloud-prelaunch-script). Scripts and injected env can
+run code or change config that the image allowlist never sees, and env
+values are unmeasured. New fail-closed verifier check `Config`: rejects a
+non-empty `pre_launch_script`/`init_script`, a non-empty `allowed_envs`, and
+any `$` interpolation in `docker_compose_file` (`$$` literal allowed),
+unless the policy sets `allow_pre_launch_script` / `allow_env_injection`.
+
+### D-039 Custom-domain TLS passthrough on Phala
+Gateway reads TXT `_dstack-app-address.<sni>` (fallback
+`_dstack-app-address-wildcard.<parent>`, legacy `_tapp-address`), value
+`<id>:<port>`, and forwards raw TLS (dstack
+`gateway/src/proxy/tls_passthough.rs`). dstack-ingress documents
+TLS-ALPN-01 through it with CNAME → gateway domain and TXT →
+**instance ID**:443 (Let's Encrypt multi-vantage validation vs.
+per-app load balancing). Port 80 is not routable on Phala
+(networking/specifications.md), hence HTTP-01 disabled. Caddy (rather
+than lego) for TLS-ALPN-01 behind the gateway is UNCONFIRMED until the live
+run.
+
+### D-040 Phala KMS and storage
+RTMR3 `key-provider` payload: `{"name":"kms","id":"<hex KMS root pubkey>"}`
+(dstack `system_setup.rs`). With Phala's own KMS, Phala's operations decide
+which compose hashes get keys; on-chain KMS (Ethereum/Base) moves that to a
+contract. The data disk is LUKS with a KMS-derived key, persists across
+restarts, has no integrity/rollback protection (dstack
+docs/security/security-model.md). Policy pins the payload exactly.
+
+### D-041 Measurements on Phala
+Phala publishes no per-size MRTD/RTMR tables; they depend on the image plus
+`vm_config` (cpu_count, memory_size, qemu_version, …; dstack-types
+`VmConfig`). Plan: compute with `dstack-mr` from the OS image Phala runs and
+the CVM's `vm_config`. If a first run takes values from the live quote, the
+policy file and docs must say so and must not claim C2 for that release.
+
+### D-035 addendum
+amd64 reproducibility confirmed 2026-11-26: two clean `linux/amd64` builds
+(under emulation) of commit `10bbc2b` gave
+`sha256:02f03ab9d9ec65c7366ee4a770401f92be8e4e9160cc5f350fcfc6482cfd3f28`.
+`publish.sh` pushes with OCI media types so the registry digest matches
+`reproducible-build.sh`.

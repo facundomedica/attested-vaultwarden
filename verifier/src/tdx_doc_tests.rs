@@ -83,6 +83,9 @@ fn case() -> Case {
             service: "vaultwarden".into(),
             image,
         }],
+
+        allow_pre_launch_script: false,
+        allow_env_injection: false,
     };
     let ctx = evidence::Context {
         allow_insecure_mock: false,
