@@ -6,3 +6,4 @@ deploy/local/.generated/
 deploy/dstack/.generated/
 deploy/dstack/simulator/.generated/
 demo/tamper/.generated/
+registry.env

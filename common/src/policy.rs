@@ -63,15 +63,17 @@ pub struct Policy {
     /// here, pinned by `@sha256:` digest.
     #[serde(default)]
     pub images: Vec<ImagePolicy>,
-    /// Accept a non-empty `pre_launch_script` / `init_script` in the
-    /// app-compose. Default false: scripts can run code and pull images that
-    /// the image allowlist never sees.
+    /// SHA-256 (hex) of the only `pre_launch_script` accepted. Unset: the
+    /// app-compose must have no pre-launch script. Scripts run code that the
+    /// image allowlist never sees, so each one is pinned and reviewed.
     #[serde(default)]
-    pub allow_pre_launch_script: bool,
-    /// Accept a non-empty `allowed_envs` and `$VAR` interpolation in the
-    /// compose. Default false: injected env values are not measured.
+    pub pre_launch_script_sha256: Option<String>,
+    /// Exact set of encrypted env var NAMES the app-compose may allow
+    /// (`allowed_envs`). Their values are not measured; list only values whose
+    /// substitution cannot change what runs (e.g. a registry read token when
+    /// every image is pinned by digest). Default: none.
     #[serde(default)]
-    pub allow_env_injection: bool,
+    pub allowed_envs: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -230,6 +232,9 @@ impl Policy {
                     .ok_or_else(|| invalid("mock", "required when platform = \"mock\""))?;
                 check_hex("mock.compose_hash", &m.compose_hash, 32)?;
             }
+        }
+        if let Some(h) = &self.pre_launch_script_sha256 {
+            check_hex("pre_launch_script_sha256", h, 32)?;
         }
         if self.images.is_empty() {
             return Err(invalid("images", "at least one image must be allowlisted"));

@@ -126,44 +126,81 @@ pub fn images(compose_yaml: &str) -> Result<Vec<ImageDigest>, ComposeError> {
 }
 
 /// Ways the measured app-compose could make the CVM run something that is
-/// not fully described by the measured document itself. Returns one message
-/// per problem; empty means self-contained.
+/// not fully described by the measured document and the policy. Returns one
+/// message per problem; empty means self-contained.
+///
+/// * `pre_launch_script`: must be absent/empty, or hash to `script_sha256`.
+/// * `init_script`: must be absent/empty.
+/// * `allowed_envs`: must equal `allowed_envs` exactly (as a set).
+/// * `$` interpolation in `docker_compose_file`: always rejected, so injected
+///   env values can never reach the compose configuration.
 pub fn config_problems(
     app_compose: &str,
-    allow_scripts: bool,
-    allow_env: bool,
+    script_sha256: Option<&str>,
+    allowed_envs: &[String],
 ) -> Result<Vec<String>, ComposeError> {
     let v: serde_json::Value =
         serde_json::from_str(app_compose).map_err(|e| ComposeError::Json(e.to_string()))?;
     let mut out = Vec::new();
-    if !allow_scripts {
-        for key in ["pre_launch_script", "init_script"] {
-            match v.get(key) {
-                None | Some(serde_json::Value::Null) => {}
-                Some(serde_json::Value::String(s)) if s.trim().is_empty() => {}
-                Some(_) => out.push(format!(
-                    "app-compose has a non-empty `{key}` (runs code outside the image allowlist)"
-                )),
+    let text = |key: &str| match v.get(key) {
+        None | Some(serde_json::Value::Null) => Ok(None),
+        Some(serde_json::Value::String(s)) if s.trim().is_empty() => Ok(None),
+        Some(serde_json::Value::String(s)) => Ok(Some(s.clone())),
+        Some(_) => Err(ComposeError::Json(format!("`{key}` is not a string"))),
+    };
+    match (text("pre_launch_script")?, script_sha256) {
+        (None, None) => {}
+        (None, Some(_)) => out.push("policy pins a pre-launch script but the app-compose has none".into()),
+        (Some(_), None) => out.push(
+            "app-compose has a pre-launch script but the policy pins none (runs code outside the image allowlist)"
+                .into(),
+        ),
+        (Some(s), Some(want)) => {
+            let got = hex::encode(Sha256::digest(s.as_bytes()));
+            if !got.eq_ignore_ascii_case(want) {
+                out.push(format!("pre-launch script hashes to {got}, policy pins {want}"));
             }
         }
     }
-    if !allow_env {
-        match v.get("allowed_envs") {
-            None | Some(serde_json::Value::Null) => {}
-            Some(serde_json::Value::Array(a)) if a.is_empty() => {}
-            Some(_) => out.push(
-                "app-compose allows injected env vars (`allowed_envs`), whose values are not measured"
-                    .into(),
-            ),
-        }
-        let yaml = docker_compose_file(app_compose)?;
-        if let Some(line) = interpolation_line(&yaml) {
-            out.push(format!(
-                "docker_compose_file uses `$` variable interpolation (line {line}); values would come from unmeasured env"
-            ));
-        }
+    if text("init_script")?.is_some() {
+        out.push("app-compose has a non-empty `init_script`".into());
+    }
+    let mut got: Vec<String> = match v.get("allowed_envs") {
+        None | Some(serde_json::Value::Null) => Vec::new(),
+        Some(serde_json::Value::Array(a)) => a
+            .iter()
+            .map(|x| x.as_str().map(str::to_owned))
+            .collect::<Option<Vec<_>>>()
+            .ok_or_else(|| ComposeError::Json("`allowed_envs` has a non-string".into()))?,
+        Some(_) => return Err(ComposeError::Json("`allowed_envs` is not an array".into())),
+    };
+    let mut want = allowed_envs.to_vec();
+    got.sort();
+    got.dedup();
+    want.sort();
+    want.dedup();
+    if got != want {
+        out.push(format!(
+            "app-compose allows encrypted env {got:?} (values unmeasured), policy allows {want:?}"
+        ));
+    }
+    let yaml = docker_compose_file(app_compose)?;
+    if let Some(line) = interpolation_line(&yaml) {
+        out.push(format!(
+            "docker_compose_file uses `$` variable interpolation (line {line}); values would come from unmeasured env"
+        ));
     }
     Ok(out)
+}
+
+/// SHA-256 (hex) of the app-compose's `pre_launch_script`, if any.
+pub fn pre_launch_script_sha256(app_compose: &str) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_str(app_compose).ok()?;
+    let s = v.get("pre_launch_script")?.as_str()?;
+    if s.trim().is_empty() {
+        return None;
+    }
+    Some(hex::encode(Sha256::digest(s.as_bytes())))
 }
 
 /// First line with compose variable interpolation (`$VAR`, `${VAR}`);
@@ -311,22 +348,53 @@ mod tests {
             "docker_compose_file": "services: {}\n", "pre_launch_script": "", "allowed_envs": []
         })
         .to_string();
-        assert!(config_problems(&clean, false, false).unwrap().is_empty());
-        let script = serde_json::json!({
-            "docker_compose_file": "services: {}\n", "pre_launch_script": "curl x | sh"
+        assert!(config_problems(&clean, None, &[]).unwrap().is_empty());
+
+        let script = "docker login ghcr.io";
+        let with_script = serde_json::json!({
+            "docker_compose_file": "services: {}\n", "pre_launch_script": script,
+            "allowed_envs": ["TOKEN"]
         })
         .to_string();
-        assert_eq!(config_problems(&script, false, false).unwrap().len(), 1);
-        assert!(config_problems(&script, true, false).unwrap().is_empty());
-        let env = serde_json::json!({
-            "docker_compose_file": "services:\n  a:\n    environment:\n      X: ${SECRET}\n",
-            "allowed_envs": ["SECRET"]
+        let h = hex::encode(Sha256::digest(script.as_bytes()));
+        assert_eq!(
+            pre_launch_script_sha256(&with_script).as_deref(),
+            Some(h.as_str())
+        );
+        assert_eq!(config_problems(&with_script, None, &[]).unwrap().len(), 2);
+        assert!(
+            config_problems(&with_script, Some(&h), &["TOKEN".into()])
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            config_problems(&with_script, Some(&"00".repeat(32)), &["TOKEN".into()])
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            config_problems(&with_script, Some(&h), &["OTHER".into()])
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(config_problems(&clean, Some(&h), &[]).unwrap().len(), 1);
+
+        // Interpolation is rejected even when env names are allowed.
+        let interp = serde_json::json!({
+            "docker_compose_file": "services:\n  a:\n    environment:\n      X: ${TOKEN}\n",
+            "allowed_envs": ["TOKEN"]
         })
         .to_string();
-        assert_eq!(config_problems(&env, false, false).unwrap().len(), 2);
-        assert!(config_problems(&env, false, true).unwrap().is_empty());
+        assert_eq!(
+            config_problems(&interp, None, &["TOKEN".into()])
+                .unwrap()
+                .len(),
+            1
+        );
         let literal = serde_json::json!({"docker_compose_file": "x: \"$$HOME\"\n"}).to_string();
-        assert!(config_problems(&literal, false, false).unwrap().is_empty());
+        assert!(config_problems(&literal, None, &[]).unwrap().is_empty());
     }
 
     #[test]

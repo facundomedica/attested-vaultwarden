@@ -40,8 +40,8 @@ fn fixture() -> Fixture {
             image: image(),
         }],
 
-        allow_pre_launch_script: false,
-        allow_env_injection: false,
+        pre_launch_script_sha256: None,
+        allowed_envs: vec![],
     };
     Fixture {
         nonce: Nonce([9; 32]),
@@ -201,7 +201,7 @@ fn pre_launch_script_fails_config_check() {
     });
     let r = run(&f, &doc(&f, f.nonce, f.spki, &ac), true);
     assert_eq!(failed(&r), vec![CheckId::Config], "{r}");
-    f.policy.allow_pre_launch_script = true;
+    f.policy.pre_launch_script_sha256 = compose::pre_launch_script_sha256(&ac);
     let r = run(&f, &doc(&f, f.nonce, f.spki, &ac), true);
     assert!(failed(&r).is_empty(), "{r}");
 }

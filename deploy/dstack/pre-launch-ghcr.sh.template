@@ -1,0 +1,11 @@
+# Attested Vaultwarden pre-launch script (measured: part of app-compose).
+#
+# dstack `source`s this from app-compose.sh under `set -euo pipefail`, with
+# the decrypted env in the environment. It logs in to GHCR so the private,
+# digest-pinned sidecar image can be pulled.
+#
+# Only the token comes from encrypted env (unmeasured); registry and user are
+# fixed here. A substituted token cannot change which image runs: every image
+# is pinned by @sha256 digest, so a wrong token only makes the pull fail.
+printf '%s' "${GHCR_READ_TOKEN:?GHCR_READ_TOKEN is not set}" \
+  | docker login ghcr.io --username __GHCR_USER__ --password-stdin

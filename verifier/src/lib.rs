@@ -276,6 +276,12 @@ pub fn check_document(
     // Measurements, event log and the measured compose hash.
     let got_compose = compose::compose_hash(doc.app_compose.as_bytes());
     report.observed.compose_hash_served = Some(hex::encode(got_compose));
+    report.observed.pre_launch_script_sha256 = compose::pre_launch_script_sha256(&doc.app_compose);
+    report.observed.allowed_envs = serde_json::from_str::<serde_json::Value>(&doc.app_compose)
+        .ok()
+        .and_then(|v| v.get("allowed_envs").cloned())
+        .and_then(|a| serde_json::from_value(a).ok())
+        .unwrap_or_default();
     if let evidence::Measured::Tdx(q) = &verified.measured {
         let o = &mut report.observed;
         o.tcb_status = Some(q.tcb_status.clone());
@@ -357,13 +363,13 @@ pub fn check_document(
     // Nothing outside the measured document may decide what runs.
     match compose::config_problems(
         &doc.app_compose,
-        policy.allow_pre_launch_script,
-        policy.allow_env_injection,
+        policy.pre_launch_script_sha256.as_deref(),
+        &policy.allowed_envs,
     ) {
         Err(e) => report.fail(CheckId::Config, e.to_string()),
         Ok(p) if p.is_empty() => report.pass(
             CheckId::Config,
-            "no pre-launch/init script, no injected env, no variable interpolation",
+            "pre-launch script, init script and encrypted env names exactly as the policy pins; no variable interpolation",
         ),
         Ok(p) => report.fail(CheckId::Config, p.join("; ")),
     }

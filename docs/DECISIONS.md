@@ -539,6 +539,7 @@ values are unmeasured. New fail-closed verifier check `Config`: rejects a
 non-empty `pre_launch_script`/`init_script`, a non-empty `allowed_envs`, and
 any `$` interpolation in `docker_compose_file` (`$$` literal allowed),
 unless the policy sets `allow_pre_launch_script` / `allow_env_injection`.
+*Superseded by D-042: exact pins instead of booleans.*
 
 ### D-039 Custom-domain TLS passthrough on Phala
 Gateway reads TXT `_dstack-app-address.<sni>` (fallback
@@ -573,3 +574,28 @@ amd64 reproducibility confirmed 2026-11-26: two clean `linux/amd64` builds
 `sha256:02f03ab9d9ec65c7366ee4a770401f92be8e4e9160cc5f350fcfc6482cfd3f28`.
 `publish.sh` pushes with OCI media types so the registry digest matches
 `reproducible-build.sh`.
+
+### D-042 Private sidecar image on Phala (maintainer's choice, 2026-11-26)
+The maintainer kept the GHCR package private. Facts (dstack
+`os/common/rootfs/app-compose.sh`, `app-compose.service`): the app-compose
+`pre_launch_script` is `source`d by bash under `set -euo pipefail` in a
+process started with `dstack-util exec-with-env --env-file
+/dstack/.host-shared/.decrypted-env.json`; `docker compose up` then runs in
+the same environment. Design:
+
+* our own measured script (`deploy/dstack/pre-launch-ghcr.sh.template`):
+  `docker login ghcr.io --username <user>` with `GHCR_READ_TOKEN` from
+  encrypted env; registry and user literal;
+* policy replaces the D-038 booleans with exact pins:
+  `pre_launch_script_sha256` (absent ⇒ no script allowed) and
+  `allowed_envs` (exact set of names, default empty); `$` interpolation in
+  the compose is always rejected;
+* token: GitHub classic PAT, `read:packages` only, short expiry, created and
+  stored by the maintainer in a gitignored env file; never handled by the
+  assistant.
+
+Cost: one unmeasured value (substitution can only break the pull because
+images are pinned by digest), root code before the containers (pinned and
+reviewed), and verifiers cannot pull the image (they can rebuild it: the
+pushed digest `sha256:bf0734c5…` of commit `f2636a0` was reproduced
+independently on 2026-11-26).

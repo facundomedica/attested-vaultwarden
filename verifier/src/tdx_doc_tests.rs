@@ -84,8 +84,8 @@ fn case() -> Case {
             image,
         }],
 
-        allow_pre_launch_script: false,
-        allow_env_injection: false,
+        pre_launch_script_sha256: None,
+        allowed_envs: vec![],
     };
     let ctx = evidence::Context {
         allow_insecure_mock: false,

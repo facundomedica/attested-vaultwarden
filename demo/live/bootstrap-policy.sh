@@ -67,6 +67,11 @@ curl -sf "$url/.well-known/tee-attestation?nonce=$(z 64)" | jq -j .app_compose >
   echo "release = \"$release\""
   echo "date = \"$(date -u +%Y-%m-%d)\""
   echo "platform = \"tdx\""
+  # Config: the exact pre-launch script and encrypted env NAMES in use.
+  if [ "$(o pre_launch_script_sha256)" != null ]; then
+    echo "pre_launch_script_sha256 = \"$(o pre_launch_script_sha256)\""
+  fi
+  echo "allowed_envs = $(jq -c '.observed.allowed_envs' "$r")"
   echo
   echo "[tdx]"
   echo "mrtd = \"$(o mrtd)\""

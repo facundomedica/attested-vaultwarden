@@ -88,6 +88,8 @@ pub struct Observed {
     pub rtmr3: Option<String>,
     pub compose_hash_measured: Option<String>,
     pub compose_hash_served: Option<String>,
+    pub pre_launch_script_sha256: Option<String>,
+    pub allowed_envs: Vec<String>,
     pub app_id: Option<String>,
     pub key_provider: Option<String>,
     pub images: Vec<(String, String)>,

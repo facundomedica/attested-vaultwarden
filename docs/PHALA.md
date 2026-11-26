@@ -33,6 +33,37 @@ package **public** (GitHub → Packages → attest-sidecar → Package settings 
 Change visibility). Anyone can confirm the digest with
 `attest-sidecar/reproducible-build.sh <commit>`.
 
+## 1b. Private image variant (what this deployment uses)
+
+The maintainer chose to keep the sidecar package private. The CVM then
+needs its own read token (your Phala/GitHub login does not reach inside the
+CVM):
+
+1. **(you)** Create a GitHub **classic** token with only `read:packages`
+   and a short expiry: <https://github.com/settings/tokens/new?scopes=read:packages&description=phala-attested-vaultwarden>
+2. **(you)** Put it in `deploy/dstack/.generated/registry.env` (gitignored),
+   one line: `GHCR_READ_TOKEN=<token>`. Nobody else needs to see it.
+3. Render with `phala-private`: this also writes `pre-launch.sh`, a two-line
+   measured script that runs `docker login ghcr.io --username <user>` with
+   the token from encrypted env, and prints its SHA-256.
+4. Deploy with `--pre-launch-script deploy/dstack/.generated/pre-launch.sh
+   -e deploy/dstack/.generated/registry.env` instead of
+   `--no-pre-launch-script`.
+
+What this costs in assurance, and why it is acceptable here:
+
+* `allowed_envs = ["GHCR_READ_TOKEN"]`: the value is unmeasured, so the host
+  could substitute it. Every image is pinned by digest, so a substituted
+  token can only make the pull fail; it cannot change what runs.
+* The pre-launch script runs as root before the containers. It is pinned in
+  the policy (`pre_launch_script_sha256`) and reviewed.
+* `$` interpolation in the compose stays forbidden, because the decrypted
+  env is also in `docker compose`'s environment.
+* Verifiers cannot pull the image to inspect it; they can still rebuild the
+  commit with `attest-sidecar/reproducible-build.sh` and compare digests.
+* A classic `read:packages` token can read *all* of the account's private
+  packages, not just this one.
+
 ## 2. Render the compose
 
 ```bash
