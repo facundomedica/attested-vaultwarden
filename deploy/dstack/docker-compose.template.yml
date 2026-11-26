@@ -1,7 +1,7 @@
 # Attested Vaultwarden on dstack (Intel TDX).
 #
-# Rendered by deploy/dstack/render.sh, which substitutes __DOMAIN__ and
-# __ATTEST_IMAGE__ and wraps the result into app-compose.json. dstack
+# Rendered by deploy/dstack/render.sh, which fills in the domain and the
+# sidecar image digest and wraps the result into app-compose.json. dstack
 # measures SHA-256(app-compose.json) into RTMR3 (`compose-hash`), so EVERY
 # behaviour-affecting setting is literal here. Encrypted env values are not
 # measured and are not used (allowed_envs = []).
