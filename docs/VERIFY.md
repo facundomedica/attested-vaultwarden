@@ -38,9 +38,11 @@ Open `policy/<release>.toml`. It pins:
   configuration of the server (Vaultwarden settings, images, proxy config).
   Skim it: for example `SIGNUPS_ALLOWED: "false"`, no `ADMIN_TOKEN`.
 * `[[images]]`: every container image, pinned by an `@sha256:` digest.
-* `mrtd`, `rtmr0`…`rtmr2`: the firmware and operating system. Read the
-  header comment: if it says *observed*, these values were taken from the
-  running server, not independently recomputed (see "What PASS means").
+* `mrtd`, `rtmr0`…`rtmr2`: the firmware and operating system. The header
+  comment says how they were obtained. Prefer releases whose values were
+  *reproduced* from the published dstack image with `dstack-mr` (the header
+  gives the command, so you can re-run it); values only *observed* from the
+  running server prove less (see "What PASS means").
 * `pre_launch_script_sha256`, `allowed_envs`: anything the platform may run
   or inject before the containers start.
 

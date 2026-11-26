@@ -1,0 +1,14 @@
+$ policy/measure/measure-tdx.sh dstack-0.6.5.tar.gz f33965e0… 4771a29e… --cpu 1 --memory 2G --qemu-version 8.2.2 --policy policy/2026.11.0-phala-dev.toml -- --hotplug-off false
+✓ tarball sha256 matches release notes
+✓ os_image_hash 4771a29e03e93f0e2d5e37174cd8bb1112942c9689deb36b16c5df9e183d8623, all files match sha256sum.txt
+{
+  "mrtd": "2a674327c50218dba880066b349b8d559d749ed68dce33fd651c184a877d084b07a9e583767a7ad5da13ed91deec2b70",
+  "rtmr0": "68102e7b524af310f7b7d426ce75481e36c40f5d513a9009c046e9d37e31551f0134d954b496a3357fd61d03f07ffe96",
+  "rtmr1": "2f72a4db2f7de90adeabe55607b0c1cf209fc243bc773f5862d1b00d3bb198e835e99d502e90a24005f0d1368dd24f29",
+  "rtmr2": "3d9910a33a26a769c5146dea31bea0d2924a7746ad09e121dabe709eddd5c647716f4d89279e0e24d8dbb93f9cdb605b"
+}
+✓ mrtd matches policy/2026.11.0-phala-dev.toml
+✓ rtmr0 matches policy/2026.11.0-phala-dev.toml
+✓ rtmr1 matches policy/2026.11.0-phala-dev.toml
+✓ rtmr2 matches policy/2026.11.0-phala-dev.toml
+exit 0

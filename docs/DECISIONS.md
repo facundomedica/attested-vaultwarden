@@ -674,4 +674,15 @@ maintainer's read-only GHCR token in the gitignored `registry.env`.
 * The sidecar now forwards the guest agent's `vm_config` in the evidence
   (unmeasured, host-declared; it only parameterises the recomputation), and
   the verifier reports it under `observed.vm_config`.
-* Pending: downloading the 0.6.5 image (maintainer's OK needed).
+* **Result 2026-11-26** (maintainer approved the download):
+  `dstack-0.6.5.tar.gz` from the GitHub release, 630,600,346 bytes, sha256
+  `f33965e0…` = release notes; os_image_hash = SHA-256(sha256sum.txt) =
+  `4771a29e…`; every file matches. `dstack-mr measure -c 1 -m 2G
+  --qemu-version 8.2.2` reproduced MRTD, RTMR1 and RTMR2 of the live quote
+  exactly; RTMR0 matched once `--hotplug-off false` was set (dstack-mr's
+  default is true; the dstack fixture's vm_config also had
+  `hotplug_off: false`). So the live CVM booted the published 0.6.5 image;
+  the release policy's header was updated and claims C2. The VM-shape
+  parameters were inferred (tdx.small spec + fixture), not read from the
+  live `vm_config`; future runs get it from the evidence. MRTD, RTMR1 and
+  RTMR2 (the image-dependent registers) matched under the first guess.

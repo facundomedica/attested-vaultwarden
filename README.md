@@ -17,7 +17,7 @@ anyone check, from their own machine, that:
 2. it runs exactly a published release: the measured compose document,
    every container image pinned by digest, no launch scripts or env
    injection beyond what the release pins, and the firmware/OS measurements
-   the release lists;
+   the release lists, recomputed from the published dstack OS image;
 3. **the TLS connection you are on terminates inside that same VM**, so
    nobody can relay a genuine VM's attestation in front of another server.
 
@@ -100,10 +100,12 @@ Step-by-step for non-experts: [docs/VERIFY.md](docs/VERIFY.md).
 * **The Bitwarden apps don't verify.** Attestation is checked by running
   this tool, periodically or by hand. Between checks, whoever controls DNS
   could point some clients at a non-attested server.
-* **Measurements of the first live release were observed, not reproduced.**
-  `policy/2026.11.0-phala-dev.toml` took MRTD/RTMR0-2 from the live quote; it
-  says so in its header and does not claim "runs the published OS image"
-  until they are recomputed with `dstack-mr` (tooling in `policy/measure/`).
+* **OS measurements depend on the VM shape.** The MRTD in dstack's release
+  notes does not match a Phala VM (different QEMU page-add behaviour), so
+  each release's MRTD/RTMR0-2 are recomputed with `dstack-mr` from the
+  published image for the exact VM shape (`policy/measure/`). For the first
+  live release all four reproduced exactly
+  ([transcript](policy/2026.11.0-phala-dev.reproduce.txt)).
 * **Phala's KMS is trusted** to release the disk key only to this app; the
   data disk has no rollback protection.
 * **The sidecar image is private** on GHCR in the current deployment; a

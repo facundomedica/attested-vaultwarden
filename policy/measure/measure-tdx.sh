@@ -34,7 +34,7 @@ got_img="$(shasum -a 256 "$dir/sha256sum.txt" | cut -d' ' -f1)"
 echo "✓ os_image_hash $got_img, all files match sha256sum.txt"
 args=(measure -c "$cpu" -m "$mem" --json)
 [ -n "$qemu" ] && args+=(--qemu-version "$qemu")
-out="$(docker run --rm --network none -v "$dir:/img:ro" avw-dstack-mr:350a0a7 "${args[@]}" "${extra[@]}" /img/metadata.json)"
+out="$(docker run --rm --network none -v "$dir:/img:ro" avw-dstack-mr:350a0a7 "${args[@]}" ${extra[@]+"${extra[@]}"} /img/metadata.json)"
 echo "$out" | jq '{mrtd, rtmr0, rtmr1, rtmr2}' | tee "$work/mr.json"
 if [ -n "$policy" ]; then
   fails=0

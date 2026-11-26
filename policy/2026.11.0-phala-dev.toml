@@ -1,6 +1,14 @@
 # Release policy drafted 2026-11-26T17:40Z by demo/live/bootstrap-policy.sh from https://vault.facundo.dev.
-# MRTD/RTMR0-2 were OBSERVED from the live quote, NOT independently reproduced
-# with dstack-mr: this release does not support claim C2 (published OS image).
+# MRTD/RTMR0-2 were first observed from the live quote, then INDEPENDENTLY
+# REPRODUCED on 2026-11-26 with dstack-mr (built at dstack 350a0a73) from the
+# published image dstack-0.6.5.tar.gz (sha256 f33965e0…, os_image_hash
+# 4771a29e…, GitHub release mkosi-os-v0.6.5) for VM shape cpu=1, memory=2G,
+# qemu 8.2.2, hotplug_off=false (Phala tdx.small). All four match: this
+# release supports claim C2. Transcript: policy/2026.11.0-phala-dev.reproduce.txt
+#   policy/measure/measure-tdx.sh dstack-0.6.5.tar.gz <sha256> <os_image_hash> \
+#     --cpu 1 --memory 2G --qemu-version 8.2.2 --policy <this file> -- --hotplug-off false
+# Development release: logs were off on the live run, the sidecar image is
+# private, and the PCK flags SMT/dynamic platform/cached keys are accepted.
 # TCB status / advisories at drafting time: UpToDate 
 # Reviewed app-compose: policy/2026.11.0-phala-dev.app-compose.json
 schema = 1
