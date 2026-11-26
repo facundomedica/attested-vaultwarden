@@ -6,7 +6,8 @@
 #   attest-sidecar/publish.sh ghcr.io/<owner>/attest-sidecar [commit]
 #
 # The pushed image is built exactly like reproducible-build.sh does, so anyone
-# can rebuild the same commit and compare digests:
+# can rebuild the same commit and compare digests (OCI media types in both,
+# so the pushed manifest digest equals the one reproducible-build.sh prints):
 #   attest-sidecar/reproducible-build.sh <commit>
 #
 # GHCR packages are private by default: make the package public in GitHub
@@ -33,7 +34,7 @@ docker buildx build --builder "$BUILDER" --no-cache \
   --build-arg SOURCE_DATE_EPOCH="$epoch" \
   --provenance=false --sbom=false \
   --metadata-file "$work/meta.json" \
-  --output "type=image,name=${tag},push=true,rewrite-timestamp=true" \
+  --output "type=image,name=${tag},push=true,oci-mediatypes=true,rewrite-timestamp=true" \
   -f "$work/attest-sidecar/Dockerfile" "$work"
 digest="$(jq -r '."containerimage.digest"' "$work/meta.json")"
 [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "push did not report a digest" >&2; exit 1; }
