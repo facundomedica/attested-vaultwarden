@@ -7,5 +7,12 @@
 # Only the token comes from encrypted env (unmeasured); registry and user are
 # fixed here. A substituted token cannot change which image runs: every image
 # is pinned by @sha256 digest, so a wrong token only makes the pull fail.
+#
+# The root filesystem is read-only (dm-verity), so docker's credential store
+# goes to /tmp, as in Phala's default script. The export reaches the
+# `docker compose up` that app-compose.sh runs next in the same shell.
+export DOCKER_CONFIG=/tmp/.docker
+mkdir -p "$DOCKER_CONFIG"
+chmod 700 "$DOCKER_CONFIG"
 printf '%s' "${GHCR_READ_TOKEN:?GHCR_READ_TOKEN is not set}" \
   | docker login ghcr.io --username __GHCR_USER__ --password-stdin

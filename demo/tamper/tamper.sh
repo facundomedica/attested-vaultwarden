@@ -23,7 +23,7 @@ sed 's/SIGNUPS_ALLOWED: "false"/SIGNUPS_ALLOWED: "true"/' "$gen/orig/docker-comp
 diff "$gen/orig/docker-compose.yml" "$gen/tampered/docker-compose.yml" || true
 flags=(--no-public-logs --no-public-sysinfo --wait)
 if [ -n "${ENV_FILE:-}" ]; then
-  flags+=(--pre-launch-script "$gen/orig/pre-launch.sh" -e "$ENV_FILE")
+  flags+=(--pre-launch-script "$gen/orig/pre-launch.sh" -e "$ENV_FILE" --no-dev-os)
 else
   flags+=(--no-pre-launch-script)
 fi

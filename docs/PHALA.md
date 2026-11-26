@@ -47,8 +47,11 @@ CVM):
    measured script that runs `docker login ghcr.io --username <user>` with
    the token from encrypted env, and prints its SHA-256.
 4. Deploy with `--pre-launch-script deploy/dstack/.generated/pre-launch.sh
-   -e deploy/dstack/.generated/registry.env` instead of
-   `--no-pre-launch-script`.
+   -e deploy/dstack/.generated/registry.env --no-dev-os` instead of
+   `--no-pre-launch-script`. **`--no-dev-os` is required**: with a
+   pre-launch script, CLI 1.2.8 otherwise reads `~/.ssh/id_*.pub` and adds
+   it as encrypted env `DSTACK_AUTHORIZED_KEYS` (and the verifier's
+   `Config` check then rejects the extra env name).
 
 What this costs in assurance, and why it is acceptable here:
 
