@@ -33,7 +33,7 @@ pub enum CheckId {
 impl CheckId {
     pub fn label(&self) -> &'static str {
         match self {
-            CheckId::Tls => "TLS connection (WebPKI)",
+            CheckId::Tls => "TLS connection, certificate validated",
             CheckId::Fetch => "Fetch attestation over same connection",
             CheckId::SpkiBinding => "TLS key bound to attestation",
             CheckId::Nonce => "Freshness nonce",
@@ -61,6 +61,8 @@ pub struct Report {
     /// Set when the evidence is the INSECURE mock and the user allowed it.
     pub insecure_mock: bool,
     pub checks: Vec<Check>,
+    /// Context lines (trust roots, retries). Not checks.
+    pub notes: Vec<String>,
 }
 
 impl Report {
@@ -71,6 +73,7 @@ impl Report {
             platform: None,
             insecure_mock: false,
             checks: Vec::new(),
+            notes: Vec::new(),
         }
     }
 
@@ -120,6 +123,9 @@ impl fmt::Display for Report {
         if let Some(p) = &self.platform {
             writeln!(f, "Platform: {p}")?;
         }
+        for n in &self.notes {
+            writeln!(f, "  ({n})")?;
+        }
         for c in &self.checks {
             let mark = if c.passed { "✓" } else { "✗" };
             writeln!(f, "  {mark} {}: {}", c.id.label(), c.detail)?;
@@ -131,7 +137,11 @@ impl fmt::Display for Report {
         } else {
             "FAIL"
         };
-        write!(f, "Result:  {verdict}")
+        write!(f, "Result:  {verdict}")?;
+        if self.insecure_mock {
+            write!(f, "\n!!! {} !!!", attested_vw_common::INSECURE_MOCK_BANNER)?;
+        }
+        Ok(())
     }
 }
 

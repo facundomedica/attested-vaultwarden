@@ -1,7 +1,7 @@
 # How to verify a deployment
 
-> Status: placeholder (M0). The verifier does not work yet; it fails closed
-> on every run. This guide is written for non-experts in M5.
+> Status: placeholder (M1). The verifier works end to end only against the
+> INSECURE local mock; TDX verification arrives in M2 and fails closed until then. This guide is written for non-experts in M5.
 
 Planned outline:
 

@@ -26,6 +26,17 @@ jobs:
       # Unit tests must not touch the network; fixtures live in */testdata.
       - run: cargo test --workspace --locked
 
+  e2e-local-mock:
+    # Local end-to-end test with the INSECURE mock platform: Vaultwarden +
+    # Caddy (local CA) + sidecar, verifier against it, relay and tamper cases.
+    runs-on: ubuntu-24.04
+    needs: check
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: deploy/local/e2e.sh
+
   deny:
     runs-on: ubuntu-24.04
     steps:

@@ -2,7 +2,8 @@
 
 Running log. Every external fact the code or docs rely on gets a line here
 with its source and the date it was checked. Decisions that need the
-maintainer's review are marked **OPEN**.
+maintainer's review are marked **OPEN**. The M0 recommendations (D-001,
+D-004, D-005, D-008, D-010) were accepted on 2026-11-26.
 
 Pinned source abbreviations (all checked 2026-11-26):
 
@@ -21,7 +22,7 @@ re-checked before code depends on them.
 
 ### D-001 Licence: MIT OR Apache-2.0
 Proposed in the task and in the M0 plan. Applied in M0 (`LICENSE-MIT`,
-`LICENSE-APACHE`, `license` in `Cargo.toml`). **OPEN: confirm.**
+`LICENSE-APACHE`, `license` in `Cargo.toml`). Accepted with the M0 review (2026-11-26).
 
 ### D-002 Workspace layout and toolchain
 Three crates as in the task: `common` (lib), `attest-sidecar` (bin),
@@ -45,7 +46,7 @@ TLS EKM (RFC 9266) instead of SPKI. SPKI binding works through an unmodified
 proxy; EKM binding is stronger (per session) but needs the sidecar inside the
 TLS stack (stretch goal, see D-015).
 
-### D-004 dstack guest-agent API version. **OPEN**
+### D-004 dstack guest-agent API version (accepted: v0 GetQuote first)
 dstack 0.6.0 introduced `/v1`, where `GetQuote` is gone and `Attest` returns a
 MessagePack blob (D/docs/guest-api-v1.md). The frozen v0 API (`/GetQuote`,
 `/v0/GetQuote`) still exists in 0.6.x and is the only one on 0.5.x OS images.
@@ -63,7 +64,7 @@ Proposal: implement v0 `GetQuote` first (works on 0.5.x and 0.6.x, plain
 JSON), add v1 when we know the target node's OS version. Verifier treats the
 quote's `report_data` as authoritative either way.
 
-### D-005 Guest-agent client implementation. **OPEN**
+### D-005 Guest-agent client implementation (accepted: option b)
 `dstack-sdk` 0.6.0 (crates.io, MIT) provides `DstackClientV0::get_quote` and
 `DstackClient::attest` (D/sdk/rust/src/lib.rs), but pulls reqwest and alloy
 (Ethereum tooling) into the sidecar, which runs inside the TEE and should be
@@ -111,7 +112,7 @@ injection found); binds via TLS EKM with its own `/tdx_quote` protocol. Not
 usable for offline fixture tests or our SPKI binding. We follow its
 verification order and checks.
 
-### D-008 Vaultwarden admin panel: proposal to disable. **OPEN**
+### D-008 Vaultwarden admin panel: disabled (accepted)
 The task asks for `ADMIN_TOKEN` as an Argon2 hash injected as an encrypted
 secret. Two findings argue against enabling it in attested releases:
 
@@ -155,7 +156,7 @@ See [ARCHITECTURE.md §2](ARCHITECTURE.md). Facts:
 UNCONFIRMED, to test in M3: TLS-ALPN-01 (`acme-tls/1`) through gateway SNI
 passthrough.
 
-### D-010 RTMR3 replay implementation. **OPEN**
+### D-010 RTMR3 replay implementation (accepted: option b)
 No crates.io crate replays dstack's RTMR3: `cc-eventlog` (which has
 `runtime_events::replay_events`, D/dstack/cc-eventlog/src/runtime_events.rs:179)
 is git-only; `dstack-sdk-types` 0.6.0 has the `EventLog` type but no replay
@@ -292,3 +293,72 @@ we pin a single issuer so the sidecar knows which directory to read.
 ### D-020 Phala Cloud vs self-hosted dstack. **OPEN**
 Needs maintainer decision (cost, TDX hardware). Also determines OS image
 version (D-004).
+
+---
+
+## M1 decisions (2026-11-26)
+
+### D-021 Pinned images and local build path
+Digests resolved 2026-11-26 with `docker buildx imagetools inspect`:
+
+| Image | Tag | Digest (index) |
+|-------|-----|----------------|
+| `docker.io/vaultwarden/server` | 1.37.5 | `sha256:4fe17f415f90087377d37c755e0ea3cf189dcc6794e49cdd2a9adbb4937d9e1f` |
+| `docker.io/library/caddy` | 2.11.9-alpine | `sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0` |
+| `docker.io/library/registry` | 3 | `sha256:82f6ff4a7f982960c8aa51617fea3aabc485df6e55cce80d22deb1de36f1bc3c` (local dev only) |
+| `docker.io/library/rust` | 1.97-slim-bookworm | `sha256:2775a09d208ff0d7c1f50490c45b62db929e87ba1dcbc3f2132ac71a704bcdd3` (sidecar build stage) |
+| `gcr.io/distroless/cc-debian12` | nonroot | `sha256:9dac0a79194e45a7da0158a9c6da57b217585af0786db3845d1f0ec1a0dd182f` (sidecar runtime) |
+
+The locally built sidecar has no registry digest, and the image check
+requires one, so `deploy/local/up.sh` pushes it to a throwaway registry on
+`127.0.0.1:5001` and pins `localhost:5001/attest-sidecar@sha256:…`. This
+mirrors M3, where the sidecar must be pushed to a public registry.
+
+**OPEN for M3:** users must be able to tie the sidecar digest to source.
+Options: reproducible build (pinned toolchain image, `--locked`,
+`SOURCE_DATE_EPOCH`, compare digests) or GitHub artifact attestations on our
+own image (same mechanism Vaultwarden uses). Pushing requires your OK.
+
+### D-022 Caddyfile embedded via compose `configs.content`
+Keeps the proxy configuration inside the measured compose document. Docker
+Compose supports inline `content` configs (used here with Compose v5.1.1).
+**UNCONFIRMED** that dstack's compose runner supports it; check in M3,
+fallback: `command:` with the config passed inline, or a config baked into a
+digest-pinned image.
+
+### D-023 Sidecar runs as uid 0 with no capabilities
+It must read Caddy's certificate store, written by Caddy running as root.
+Running as uid 0 with `cap_drop: [ALL]` (no `CAP_DAC_OVERRIDE` /
+`CAP_DAC_READ_SEARCH`), `read_only: true` and `no-new-privileges` limits it
+to files owned by uid 0 or world-readable, on a read-only volume mount.
+Alternative for later: run Caddy as a dedicated uid and the sidecar in its
+group.
+
+### D-024 Compose image extraction restrictions
+To avoid parser differentials between our YAML reading and Docker's, the
+verifier and sidecar reject compose documents with YAML anchors/aliases/merge
+keys (lexical, over-strict), top-level `include`/`extends`, services with
+`build`/`extends`, or services without a literal `image`. Image references
+must match `[a-z0-9./:_-]+@sha256:[0-9a-f]{64}` (excludes `${…}`
+interpolation) and appear verbatim, with their service name, in the policy.
+YAML parser: `serde_yaml_ng` 0.10 (MIT).
+
+### D-025 Sidecar limits
+Global fixed-window rate limit (default 5 req/s; behind the proxy client IPs
+are not meaningful), at most 4 concurrent evidence requests, 10 s provider
+timeout, query string must be exactly `nonce=<64 hex>`, empty body limit,
+certificate file ≤ 64 KiB re-read on every request so renewals are picked up.
+Errors to clients are generic; details go to the sidecar log only.
+
+### D-026 Verifier behaviour
+* One TCP+TLS connection, hyper HTTP/1.1 client handshake on that stream
+  (D-015); ALPN `http/1.1`; 15 s connect, 30 s request timeouts; body limit
+  1 MiB.
+* `--ca <pem>` replaces (does not extend) the WebPKI roots, and the report
+  says so.
+* Retry: exactly once, only if the sole failures are the SPKI binding and
+  the dependent report_data check (certificate rotation race). A relay fails
+  both attempts (see e2e case C).
+* Exit codes: 0 PASS, 1 FAIL, 2 "all checks passed but INSECURE MOCK".
+* MSRV raised to 1.88 because `time` ≥ 0.3.47 (fix for RUSTSEC-2026-0009,
+  pulled in via `x509-parser` → `asn1-rs`) requires it.

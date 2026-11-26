@@ -1,6 +1,6 @@
 # Attested Vaultwarden
 
-> **Status: research prototype, milestone M0 (scaffold).** Nothing here is
+> **Status: research prototype, milestone M1 (local end-to-end with an INSECURE mock; no TEE yet).** Nothing here is
 > production-ready. Do not store real passwords in a deployment of this
 > project. The threat model in [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md)
 > says exactly what is and is not protected.
@@ -45,7 +45,19 @@ runs the verifier. See the attack mapping in the threat model.
 | `demo/` | Tamper and relay demos |
 | `docs/` | Threat model, architecture, verification guide, related work, decision log |
 
-## Verifying a deployment (target UX, not yet implemented)
+## Try it locally (INSECURE mock, no TEE)
+
+```bash
+deploy/local/e2e.sh
+```
+
+Brings up Vaultwarden + Caddy + the sidecar on the mock platform and checks
+that the verifier reports the mock (exit 2, never PASS), refuses it without
+`--allow-insecure-mock`, and fails against a relay with a different TLS key
+and against a policy with a different compose hash. See
+[deploy/local/README.md](deploy/local/README.md).
+
+## Verifying a deployment (target UX, TDX path not yet implemented)
 
 ```bash
 attested-vw-verify https://vault.example.com --policy policy/<release>.toml

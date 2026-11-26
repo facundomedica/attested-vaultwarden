@@ -1,6 +1,6 @@
 # Architecture
 
-> Status: **draft (M0)**. Facts about dstack are from dstack v0.6.6 (commit
+> Status: **draft (M1)**. Local mock layout: `deploy/local/`. Facts about dstack are from dstack v0.6.6 (commit
 > `c873038`, 2026-11-20); see [DECISIONS.md](DECISIONS.md) for sources.
 
 ## 1. Overview
@@ -118,7 +118,7 @@ env values are not measured, see §5):
 | `PASSWORD_HINTS_ALLOWED` / `SHOW_PASSWORD_HINT` | `false` / `false` | hints are plaintext to the server |
 | `LOG_LEVEL` | `warn` | limit request logging (IPs, icon domains) that may be exported by the platform |
 | `IP_HEADER` | `X-Forwarded-For` from Caddy, trusted proxies `local` | correct client IPs for rate limiting |
-| `ADMIN_TOKEN` | **unset** (proposed; see DECISIONS D-008) | admin panel = operator access to metadata + runtime config |
+| `ADMIN_TOKEN` | **unset** (DECISIONS D-008) | admin panel = operator access to metadata + runtime config |
 
 `/data` is a named docker volume on the CVM's encrypted disk. No host bind
 mounts.

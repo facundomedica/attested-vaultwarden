@@ -1,0 +1,86 @@
+# Attested Vaultwarden: LOCAL INSECURE MOCK deployment.
+#
+# Generated into .generated/docker-compose.yml by up.sh, which replaces
+# __ATTEST_IMAGE__ with the locally built sidecar pinned by digest. The
+# whole rendered file is wrapped into app-compose.json, whose SHA-256 is what
+# the mock policy pins (nothing measures it locally: INSECURE MOCK).
+#
+# Every behaviour-affecting setting is literal here (no ${VAR} interpolation),
+# mirroring the dstack rule that only this document is measured.
+name: avw-local
+
+services:
+  vaultwarden:
+    image: docker.io/vaultwarden/server@sha256:4fe17f415f90087377d37c755e0ea3cf189dcc6794e49cdd2a9adbb4937d9e1f # 1.37.5
+    restart: unless-stopped
+    environment:
+      DOMAIN: "https://localhost:8443"
+      SIGNUPS_ALLOWED: "false"
+      INVITATIONS_ALLOWED: "true"
+      DISABLE_ICON_DOWNLOAD: "true"
+      ICON_CACHE_TTL: "0"
+      ICON_SERVICE: "internal"
+      PUSH_ENABLED: "false"
+      SSO_ENABLED: "false"
+      PASSWORD_HINTS_ALLOWED: "false"
+      SHOW_PASSWORD_HINT: "false"
+      ORG_CREATION_USERS: "none"
+      IP_HEADER: "X-Forwarded-For"
+      LOG_LEVEL: "warn"
+      # ADMIN_TOKEN deliberately unset: admin panel disabled (DECISIONS D-008).
+    volumes:
+      - vw_data:/data
+
+  proxy:
+    image: docker.io/library/caddy@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0 # 2.11.9-alpine
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8443:443"
+    configs:
+      - source: caddyfile
+        target: /etc/caddy/Caddyfile
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+
+  attest:
+    image: __ATTEST_IMAGE__
+    restart: unless-stopped
+    # uid 0 only to read Caddy's 0600 root-owned certificate files; all
+    # capabilities dropped, so no DAC override, read-only root filesystem.
+    user: "0:0"
+    cap_drop: [ALL]
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      ATTEST_PLATFORM: "mock"
+      ATTEST_INSECURE_MOCK: "1"
+      ATTEST_LISTEN: "0.0.0.0:8081"
+      ATTEST_CERT_PATH: "/caddy/caddy/certificates/local/localhost/localhost.crt"
+      ATTEST_APP_COMPOSE_PATH: "/etc/attest/app-compose.json"
+    volumes:
+      - caddy_data:/caddy:ro
+      - ./app-compose.json:/etc/attest/app-compose.json:ro
+
+configs:
+  caddyfile:
+    content: |
+      {
+        admin off
+        skip_install_trust
+        auto_https disable_redirects
+      }
+      localhost {
+        tls internal
+        handle /.well-known/tee-attestation {
+          reverse_proxy attest:8081
+        }
+        handle {
+          reverse_proxy vaultwarden:80
+        }
+      }
+
+volumes:
+  vw_data:
+  caddy_data:
+  caddy_config:

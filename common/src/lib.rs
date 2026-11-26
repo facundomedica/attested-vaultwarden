@@ -11,11 +11,14 @@
 //! * [`provider`]: the `QuoteProvider` trait implemented by the sidecar.
 
 #![forbid(unsafe_code)]
+#![cfg_attr(test, allow(clippy::panic, clippy::unwrap_used, clippy::expect_used))]
 
+pub mod compose;
 pub mod policy;
 pub mod provider;
 pub mod report_data;
 pub mod schema;
+pub mod tls;
 
 /// Path at which the sidecar's attestation endpoint is served.
 pub const ATTESTATION_PATH: &str = "/.well-known/tee-attestation";

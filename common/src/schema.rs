@@ -18,6 +18,10 @@ use crate::report_data::{Nonce, SpkiSha256};
 /// Current schema version. Incremented on any breaking change.
 pub const SCHEMA_VERSION: u32 = 1;
 
+/// Magic prefix of INSECURE mock evidence: `MOCK_MAGIC || report_data[64]`.
+/// The verifier recognises it and never reports PASS for it.
+pub const MOCK_MAGIC: &[u8] = b"ATTESTED-VW-INSECURE-MOCK-v1";
+
 /// Maximum size the verifier will accept for an attestation document.
 pub const MAX_DOCUMENT_BYTES: usize = 1024 * 1024;
 

@@ -55,6 +55,10 @@ pub struct Policy {
     pub tdx: Option<TdxPolicy>,
     #[serde(default)]
     pub sev_snp: Option<SevSnpPolicy>,
+    /// INSECURE local mock. Only the compose hash is checked, and nothing
+    /// measured it: it exercises the pipeline, it proves nothing.
+    #[serde(default)]
+    pub mock: Option<MockPolicy>,
     /// Allowlisted images. Every image in the measured compose must appear
     /// here, pinned by `@sha256:` digest.
     #[serde(default)]
@@ -85,6 +89,13 @@ pub struct SevSnpPolicy {
     pub measurement: String,
     /// Minimum acceptable reported TCB components.
     pub min_tcb: SnpMinTcb,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MockPolicy {
+    /// SHA-256 of the app-compose document the local sidecar serves.
+    pub compose_hash: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -124,7 +135,14 @@ fn check_hex(field: &str, value: &str, bytes: usize) -> Result<(), PolicyError> 
 pub fn is_digest_pinned(image: &str) -> bool {
     match image.rsplit_once("@sha256:") {
         Some((name, digest)) => {
+            // Reference name: registry/repo[:tag], conservative charset (no
+            // `$`, braces or whitespace, so no compose interpolation).
             !name.is_empty()
+                && name.bytes().all(|b| {
+                    b.is_ascii_lowercase()
+                        || b.is_ascii_digit()
+                        || matches!(b, b'.' | b'/' | b':' | b'-' | b'_')
+                })
                 && digest.len() == 64
                 && digest
                     .bytes()
@@ -173,7 +191,13 @@ impl Policy {
                     .ok_or_else(|| invalid("sev_snp", "required when platform = \"sev-snp\""))?;
                 check_hex("sev_snp.measurement", &s.measurement, 48)?;
             }
-            Platform::Mock => {}
+            Platform::Mock => {
+                let m = self
+                    .mock
+                    .as_ref()
+                    .ok_or_else(|| invalid("mock", "required when platform = \"mock\""))?;
+                check_hex("mock.compose_hash", &m.compose_hash, 32)?;
+            }
         }
         if self.images.is_empty() {
             return Err(invalid("images", "at least one image must be allowlisted"));
@@ -225,9 +249,20 @@ mod tests {
 
     #[test]
     fn unpinned_image_rejected() {
-        let s = "schema = 1\nrelease = \"r\"\ndate = \"d\"\nplatform = \"mock\"\n\
-                 [[images]]\nservice = \"vw\"\nimage = \"vaultwarden/server:latest\"\n";
-        assert!(Policy::from_toml(s).is_err());
+        let s = format!(
+            "schema = 1\nrelease = \"r\"\ndate = \"d\"\nplatform = \"mock\"\n\
+             [mock]\ncompose_hash = \"{D}\"\n\
+             [[images]]\nservice = \"vw\"\nimage = \"vaultwarden/server:latest\"\n"
+        );
+        assert!(matches!(
+            Policy::from_toml(&s),
+            Err(PolicyError::Invalid { field, .. }) if field == "images[0].image"
+        ));
+        let ok = s.replace(
+            "vaultwarden/server:latest",
+            &format!("vaultwarden/server@sha256:{D}"),
+        );
+        assert!(Policy::from_toml(&ok).is_ok());
     }
 
     #[test]
