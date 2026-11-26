@@ -63,6 +63,7 @@ fn doc(f: &Fixture, nonce: Nonce, spki: SpkiSha256, app_compose: &str) -> Vec<u8
             quote: B64.encode(blob),
             event_log: None,
             aux: None,
+            vm_config: None,
         },
         nonce,
         spki_sha256: spki,

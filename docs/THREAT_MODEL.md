@@ -1,7 +1,7 @@
 # Threat model
 
-> Status: **draft (M2)**. Research prototype. Sections marked *TBD* depend on
-> platform facts still being verified; see [DECISIONS.md](DECISIONS.md).
+> Status: **revised after the first live run (2026-11-26)**. Research
+> prototype. Platform facts and their sources: [DECISIONS.md](DECISIONS.md).
 
 ## 1. What this project claims
 
@@ -51,7 +51,7 @@ gateway's certificate, not ours, is what the verifier sees).
 | Adversary | Capabilities assumed | Mitigation | Residual |
 |-----------|----------------------|------------|----------|
 | **A1 Cloud / VPS operator, hypervisor** | Full control of host software, scheduling, device emulation, network, storage. | TDX/SNP memory confidentiality and integrity; dstack encrypted disk and network; attested boot chain. | Physical attacks (R4); rollback of disk (R6); denial of service. |
-| **A2 Holder of disk, snapshots or backups** | Reads and replays any persistent storage. | Disk encrypted with a key released only to the measured app (*TBD: dstack KMS key derivation*). Backups taken *inside* the guest must be encrypted to a key the operator lacks; host-level snapshots are ciphertext. | Rollback (R6). Any backup tooling added later is in the TCB. |
+| **A2 Holder of disk, snapshots or backups** | Reads and replays any persistent storage. | Data disk LUKS-encrypted with a key the KMS releases only to the measured app; the verifier requires the RTMR3 `storage-encrypted` event to be `1` (dstack 0.6.5+). Backups taken *inside* the guest must be encrypted to a key the operator lacks; host-level snapshots are ciphertext. | Rollback (R6). Any backup tooling added later is in the TCB. |
 | **A3 Network attacker** | Intercepts, modifies, replays traffic between users and the service and between components. | TLS terminated inside the guest; WebPKI validation in the verifier. | Mis-issued certificates (R2). |
 | **A4 Service operator (us)** | Chooses what to deploy, holds the deployment credentials, injects secrets, controls DNS and the ACME account, can redeploy at will. | Measurements + compose hash + image allowlist against a public, signed release policy; TLS key generated in-guest; no operator access path in the published config (no SSH, no admin panel, see §5). | DNS and certificate control (R1, R2); unmeasured inputs (§5); publishing a malicious release openly (R3). |
 | **A5 Relay attacker** | Owns a genuine TEE running the published software and forwards its attestation while serving users from a different, non-attested server. | The attested `report_data` commits to the SPKI of the certificate the verifier itself received in the same TLS connection; a relay serving a different key fails C4. | A relay that also holds the in-guest TLS key is impossible unless the key leaks (R4). |
@@ -100,8 +100,11 @@ gateway's certificate, not ours, is what the verifier sees).
   device push tokens and timing), icon sources (off: `DISABLE_ICON_DOWNLOAD`).
 * **R10 Platform components in the TCB.** Trusted: the dstack OS image
   (measured in MRTD/RTMR0-2), the dstack guest agent inside it, and the key
-  provider/KMS that releases the disk key (recorded in RTMR3 `key-provider`;
-  *TBD: exact KMS trust for Phala Cloud vs self-hosted*). With TLS
+  provider/KMS that releases the disk key (recorded in RTMR3 `key-provider`
+  and pinned by the policy). On Phala Cloud with the "Phala" KMS, Phala's
+  operations decide which compose hashes receive keys; the on-chain KMS
+  options move that decision to a contract. Self-hosted, the choice is none
+  (no persistence), a local SGX key provider, or a self-run KMS (D-032). With TLS
   passthrough (ARCHITECTURE §2) the dstack gateway sees only ciphertext and is
   trusted for availability only. Container images are trusted as published
   upstream.
@@ -151,7 +154,7 @@ them:
 | Environment variables injected at deploy time (dstack encrypted env) | Values are **not measured**; only the `allowed_envs` names are, inside `app-compose.json` (dstack `docs/encrypted-env-spec.md`). Anyone with VMM access (operator or host) can substitute them. Any security-relevant setting injected this way is attacker-controlled. | All behaviour-affecting settings are written literally in the measured compose. Only true secrets (SMTP password, push key if enabled) come from encrypted env, by name, via an allowlist. |
 | Registry read token (private sidecar image, Phala deployment) | Delivered as encrypted env `GHCR_READ_TOKEN`, unmeasured; read by a measured pre-launch script that runs `docker login`. | Policy pins the script hash and the env name; images are pinned by digest, so a substituted token can only break the pull. Compose interpolation is forbidden, so the env cannot reach configuration. |
 | Vaultwarden admin panel (`/admin`) | If `ADMIN_TOKEN` comes from encrypted env, the host can replace it with a hash of its own token (row above). Holder of `ADMIN_TOKEN` can view user metadata (emails, item counts, orgs, last activity), delete/deauthorise users, invite users and **change configuration at runtime** (persisted to `config.json` in `/data`, overriding env). That is operator access to assets and to unmeasured behaviour. | `ADMIN_TOKEN` unset in attested releases (admin panel disabled); users are onboarded via org invitations. If a panel is ever needed, its Argon2 hash goes literally into the measured compose and every capability it grants is documented as operator power. DECISIONS.md D-008. |
-| Logs | Platform log collection (e.g. container logs visible to the operator) can leak IPs, emails and icon domains. | `LOG_LEVEL=warn` or lower; *TBD: what the platform exports*. |
+| Logs | Platform log collection (e.g. container logs visible to the operator) can leak IPs, emails and icon domains. | `LOG_LEVEL=warn`. On dstack, `public_logs` (measured) decides whether container logs are served by the guest agent's external API; with it off, not even the owner can read them. Development deployments turn logs on deliberately, and their policies must say so; a release meant for real use turns them off. |
 | Persistent `/data` | Files there (e.g. `config.json`) can change behaviour and survive redeploys. | Same as admin panel; verifier cannot see `/data`. |
 | Upgrades | A new release is a new policy. | Every release is a public, signed policy file; users choose which releases they accept. |
 

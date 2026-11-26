@@ -38,6 +38,8 @@ struct GetQuoteResponse {
     quote: String,
     event_log: String,
     report_data: String,
+    #[serde(default)]
+    vm_config: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -138,6 +140,7 @@ impl QuoteProvider for Dstack {
             quote: B64.encode(quote),
             event_log: Some(r.event_log),
             aux: None,
+            vm_config: r.vm_config.filter(|v| !v.is_empty()),
         })
     }
 }

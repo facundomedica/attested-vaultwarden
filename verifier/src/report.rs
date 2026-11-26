@@ -93,6 +93,8 @@ pub struct Observed {
     pub app_id: Option<String>,
     pub key_provider: Option<String>,
     pub images: Vec<(String, String)>,
+    /// Host-declared dstack vm_config, if the server sent it (unmeasured).
+    pub vm_config: Option<serde_json::Value>,
 }
 
 impl Report {

@@ -61,6 +61,12 @@ pub struct Evidence {
     /// `auxblob`, if the host provides one). Absent otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub aux: Option<String>,
+    /// dstack `vm_config` (JSON string from GetQuote): VM shape and QEMU
+    /// details needed to *recompute* MRTD/RTMR0-2 with `dstack-mr`.
+    /// Host-declared and unmeasured: it only parameterises the computation,
+    /// and a wrong value yields measurements that do not match the quote.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vm_config: Option<String>,
 }
 
 /// An image reference as found in the compose file.

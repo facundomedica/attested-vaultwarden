@@ -652,3 +652,26 @@ Cloudflare CNAME/TXT records for `vault.facundo.dev` (they point at the
 gateway and a now-unbound app ID; a new deployment gets a new app ID, so the
 TXT value must be updated anyway), the private GHCR image, and the
 maintainer's read-only GHCR token in the gitignored `registry.env`.
+
+### D-045 Reproducing MRTD/RTMR0-2 (claim C2) for dstack 0.6.5
+* Release notes `mkosi-os-v0.6.5`: os_image_hash `4771a29e…` (same as the
+  Phala image), git revision `350a0a73ffdb6041bda69118f13d81591870b565`,
+  published TDX MRTD `83baf004…706e97`.
+* **Finding:** the live Phala CVM's MRTD was `2a674327…deec2b70`, not the
+  published value, for the same os_image_hash. dstack's own fixture notes
+  say MRTD depends on QEMU's page-add ordering (it differs between QEMU
+  8.2.2 and 10.2.1), so a published MRTD cannot verify a VM on another QEMU
+  setup; it has to be recomputed for the VM's `vm_config`.
+* The live RTMR0 (`68102e7b…f07ffe96`) equals the value dstack's fixture
+  README lists for `--cpu 1 --memory 2G --qemu-version 8.2.2` (RTMR0 is
+  virtual hardware + ACPI, image-independent): strong hint that Phala's
+  `tdx.small` is that shape.
+* Tooling: `policy/measure/Dockerfile` builds `dstack-mr` (CLI crate
+  `dstack-mr-cli`) at the image's git revision; `measure-tdx.sh` checks the
+  tarball sha256 against the release notes and os_image_hash =
+  SHA-256(sha256sum.txt), checks every file, runs `dstack-mr measure` with
+  no network, and compares with a policy.
+* The sidecar now forwards the guest agent's `vm_config` in the evidence
+  (unmeasured, host-declared; it only parameterises the recomputation), and
+  the verifier reports it under `observed.vm_config`.
+* Pending: downloading the 0.6.5 image (maintainer's OK needed).

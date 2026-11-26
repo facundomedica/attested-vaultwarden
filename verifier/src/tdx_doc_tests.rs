@@ -48,6 +48,7 @@ fn case() -> Case {
             quote: B64.encode(&f.quote),
             event_log: Some(f.event_log.clone()),
             aux: None,
+            vm_config: None,
         },
         nonce,
         spki_sha256: spki,

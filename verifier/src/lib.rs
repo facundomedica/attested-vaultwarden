@@ -276,6 +276,11 @@ pub fn check_document(
     // Measurements, event log and the measured compose hash.
     let got_compose = compose::compose_hash(doc.app_compose.as_bytes());
     report.observed.compose_hash_served = Some(hex::encode(got_compose));
+    report.observed.vm_config = doc
+        .evidence
+        .vm_config
+        .as_deref()
+        .and_then(|v| serde_json::from_str(v).ok());
     report.observed.pre_launch_script_sha256 = compose::pre_launch_script_sha256(&doc.app_compose);
     report.observed.allowed_envs = serde_json::from_str::<serde_json::Value>(&doc.app_compose)
         .ok()

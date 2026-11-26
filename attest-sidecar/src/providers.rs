@@ -29,6 +29,7 @@ impl QuoteProvider for Mock {
             quote: B64.encode(blob),
             event_log: None,
             aux: None,
+            vm_config: None,
         })
     }
 }

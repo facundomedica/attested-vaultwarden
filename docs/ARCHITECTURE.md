@@ -1,6 +1,6 @@
 # Architecture
 
-> Status: **draft (M2)**. Local mock layout: `deploy/local/`. Facts about dstack are from dstack v0.6.6 (commit
+> Status: **current as of the first live run (2026-11-26)**. Local mock layout: `deploy/local/`; Phala specifics: [PHALA.md](PHALA.md). Facts about dstack are from dstack v0.6.6 (commit
 > `c873038`, 2026-11-20); see [DECISIONS.md](DECISIONS.md) for sources.
 
 ## 1. Overview
