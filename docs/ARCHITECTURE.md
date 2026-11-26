@@ -49,8 +49,8 @@ Rationale:
 * Caddy can obtain a publicly trusted certificate with **TLS-ALPN-01**, which
   works over SNI passthrough with no DNS API token inside the CVM. (dns-01, as
   used by dstack-ingress, would need a DNS credential injected through the
-  *unmeasured* encrypted env.) *To verify in M3: that passthrough forwards the
-  `acme-tls/1` ClientHello untouched.*
+  *unmeasured* encrypted env.) Confirmed on the live Phala runs: passthrough
+  forwards the `acme-tls/1` ClientHello untouched (D-043).
 * We need our own sidecar anyway (nonce + SPKI binding), so a second proxy
   stack (HAProxy + certbot) buys nothing.
 * Fallback if TLS-ALPN-01 through the gateway fails: the gateway's

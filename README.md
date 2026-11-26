@@ -1,7 +1,8 @@
 # Attested Vaultwarden
 
-> **Status: research prototype.** It has run once, live, on Phala Cloud
-> (Intel TDX) and verified end to end; there is no permanent deployment.
+> **Status: research prototype.** It has run live on Phala Cloud (Intel
+> TDX) for two releases and verified end to end, with relay and tamper
+> demos; there is no permanent deployment.
 > Nothing here is production-ready and nothing here is "secure for your
 > passwords". The [threat model](docs/THREAT_MODEL.md) says exactly what is
 > and is not protected.
@@ -93,6 +94,13 @@ The same server seen through a relay with a different TLS key fails
 the hardware evidence is genuine, but `✗ TLS key bound to attestation` and
 `✗ report_data matches nonce + TLS key` → **FAIL**, exit 1.
 
+An operator who changes one setting (`SIGNUPS_ALLOWED` to `"true"`) and
+redeploys is caught the same way
+([demo/tamper/tamper.expected.txt](demo/tamper/tamper.expected.txt)): same
+hardware, same OS, same TLS key, but `✗ Compose hash` → **FAIL**; restoring
+the published compose → PASS. Even turning Phala's container logs on
+changes the compose hash (DECISIONS D-046).
+
 Step-by-step for non-experts: [docs/VERIFY.md](docs/VERIFY.md).
 
 ## Honest limitations
@@ -143,6 +151,10 @@ fails against a relay and against a wrong compose hash.
 
 * Phala Cloud (managed dstack, TDX): [docs/PHALA.md](docs/PHALA.md)
 * Self-hosted dstack: [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md)
+
+## Security
+
+Report problems privately, see [SECURITY.md](SECURITY.md).
 
 ## Licence
 

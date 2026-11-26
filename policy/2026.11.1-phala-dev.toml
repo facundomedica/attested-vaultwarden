@@ -1,0 +1,46 @@
+# Release policy drafted 2026-11-26T19:40Z by demo/live/bootstrap-policy.sh from https://vault.facundo.dev.
+# MRTD/RTMR0-2 were observed from the live quote and INDEPENDENTLY REPRODUCED
+# with dstack-mr (built at dstack 350a0a73) from the published image
+# dstack-0.6.5.tar.gz (sha256 f33965e0…, os_image_hash 4771a29e…, GitHub
+# release mkosi-os-v0.6.5) for VM shape cpu=1, memory=2G, qemu 8.2.2,
+# hotplug_off=false (Phala tdx.small). All four match (same values as
+# 2026.11.0): this release supports claim C2.
+# Transcript: policy/2026.11.1-phala-dev.reproduce.txt
+#   policy/measure/measure-tdx.sh dstack-0.6.5.tar.gz <sha256> <os_image_hash> \
+#     --cpu 1 --memory 2G --qemu-version 8.2.2 --policy <this file> -- --hotplug-off false
+# Development release: differs from 2026.11.0-phala-dev only in
+# "public_logs": true (Phala container logs on). Not for real users: logs
+# contain client IPs. The sidecar image is private, and the PCK flags
+# SMT/dynamic platform/cached keys are accepted.
+# TCB status / advisories at drafting time: UpToDate 
+# Reviewed app-compose: policy/2026.11.1-phala-dev.app-compose.json
+schema = 1
+release = "2026.11.1-phala-dev"
+date = "2026-11-26"
+platform = "tdx"
+pre_launch_script_sha256 = "d80afa2e745d293ba099d0ac338e57d7cc7149e02caefa20867da3739dc289ee"
+allowed_envs = ["GHCR_READ_TOKEN"]
+
+[tdx]
+mrtd = "2a674327c50218dba880066b349b8d559d749ed68dce33fd651c184a877d084b07a9e583767a7ad5da13ed91deec2b70"
+rtmr0 = "68102e7b524af310f7b7d426ce75481e36c40f5d513a9009c046e9d37e31551f0134d954b496a3357fd61d03f07ffe96"
+rtmr1 = "2f72a4db2f7de90adeabe55607b0c1cf209fc243bc773f5862d1b00d3bb198e835e99d502e90a24005f0d1368dd24f29"
+rtmr2 = "3d9910a33a26a769c5146dea31bea0d2924a7746ad09e121dabe709eddd5c647716f4d89279e0e24d8dbb93f9cdb605b"
+compose_hash = "5a5e287093b323d40cc488de726a5fa14a53d563892190c862549826905590d6"
+accepted_tcb_status = ["UpToDate"]
+allow_smt = true
+allow_dynamic_platform = true
+allow_cached_keys = true
+key_provider = "{\"name\":\"kms\",\"id\":\"3059301306072a8648ce3d020106082a8648ce3d03010703420004e8e325a477b0bf22800dc927a46c68638938d283fe73d1f9028eeac7028193f3470122193875f598b7addc503e534712ab437b4120776bbac32ddf8897f844ee\"}"
+
+[[images]]
+service = "attest"
+image = "ghcr.io/facundomedica/attest-sidecar@sha256:bf0734c56f9bfb6068a2b7058e47a9483d475fc142df0e44ddf659cda553e9e2"
+
+[[images]]
+service = "proxy"
+image = "docker.io/library/caddy@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0"
+
+[[images]]
+service = "vaultwarden"
+image = "docker.io/vaultwarden/server@sha256:4fe17f415f90087377d37c755e0ea3cf189dcc6794e49cdd2a9adbb4937d9e1f"

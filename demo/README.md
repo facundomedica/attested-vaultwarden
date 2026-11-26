@@ -7,6 +7,8 @@
 | `demo/live/smoke.sh <domain>` | live | Let's Encrypt cert, Vaultwarden up, `/admin` off, bad nonce rejected |
 | `demo/live/bootstrap-policy.sh <url> <release>` | live | drafts `policy/<release>.toml` from observed values (labelled as such) once evidence verifies |
 | `demo/relay/relay-live.sh <domain> <policy>` | your machine → live | relay with its own TLS key → ✗ TLS key binding, exit 1 |
-| `demo/tamper/tamper.sh --yes <cvm> <domain> <image> <policy>` | live (2 restarts) | `SIGNUPS_ALLOWED=true` → ✗ compose hash, exit 1; restore → PASS |
+| `[ENV_FILE=…] demo/tamper/tamper.sh --yes <cvm> <domain> <image> <policy>` | live (2 restarts; flags must match the release, logs on by default) | `SIGNUPS_ALLOWED=true` → ✗ compose hash, exit 1; restore → PASS |
 
-Recorded outputs go next to each script once the live runs are done.
+Recorded live outputs (2026-11-26, Phala Cloud): `live/smoke.expected.txt`,
+`live/verify.expected.txt` (release 2026.11.0), `live/verify-2026.11.1.expected.txt`,
+`relay/relay-live.expected.txt`, `tamper/tamper.expected.txt`.

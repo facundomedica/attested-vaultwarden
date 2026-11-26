@@ -1,9 +1,10 @@
 # Deploying on Phala Cloud (managed dstack, Intel TDX)
 
-> Status: **runbook draft (M3)**, not executed yet. Research prototype: do
-> not store real passwords. Phala facts checked 2026-11-26 (Phala docs, CLI
-> source v1.2.9, dstack `next`); see [DECISIONS.md](DECISIONS.md) D-037–D-041.
-> Steps marked **(you)** need your account, money or DNS; I don't do them.
+> Status: **executed twice on 2026-11-26** (releases `2026.11.0-phala-dev`
+> and `2026.11.1-phala-dev`, see [DECISIONS.md](DECISIONS.md) D-043, D-046).
+> Research prototype: do not store real passwords. Phala facts checked
+> 2026-11-26 (Phala docs, CLI v1.2.8 source, dstack `next`); D-037–D-041.
+> Steps marked **(you)** need your Phala account, money or DNS.
 
 Cost: `tdx.small` (1 vCPU, 2 GB) ≈ $0.06/h, `tdx.medium` ≈ $0.12/h, billed
 per running minute; disk ≈ $0.10/GB/month keeps being billed while stopped.
@@ -77,39 +78,49 @@ deploy/dstack/render.sh vault.<your-domain> \
 writes `deploy/dstack/.generated/docker-compose.yml`. Everything is literal;
 no env vars are used.
 
-## 3. Prepare the CVM and read the compose hash (you)
+## 3. Deploy the CVM (you)
 
 ```bash
-npm install -g phala       # Phala Cloud CLI
+npm install -g phala@1.2.8   # Phala Cloud CLI (1.2.9 is broken, see below)
 phala login
-phala deploy -c deploy/dstack/.generated/docker-compose.yml \
+cd deploy/dstack/.generated
+phala deploy -n attested-vaultwarden -c docker-compose.yml \
   -t tdx.small --kms phala --disk-size 20G \
-  --no-pre-launch-script --no-public-logs --no-public-sysinfo \
-  --prepare-only
+  --node prod5 --image dstack-0.6.5 \
+  --no-pre-launch-script --public-logs --no-public-sysinfo --wait
 ```
+
+(The exact command of the second live run, with the private-image variant
+of step 1b: replace `--no-pre-launch-script` by `--pre-launch-script
+pre-launch.sh -e registry.env --no-dev-os`.)
+
+* `--image`: pin the dstack OS release, so the OS measurements are the
+  ones reproduced for the release (`policy/measure/`). `--node`: keeps the
+  same gateway (and CNAME) across redeployments.
 
 * `--no-pre-launch-script`: otherwise Phala injects its default script
   (registry login, image prune, env exports), which runs outside our image
   allowlist and which the verifier refuses by default (`Config` check).
-* `--no-public-logs --no-public-sysinfo`: container logs (client IPs) must
-  not be exported. These flags are measured into the app-compose.
+* `--public-logs` / `--no-public-logs`: measured into the app-compose, so
+  it is part of the release. The CLI describes it as making CVM logs
+  *publicly* accessible. Development releases keep logs **on** (with logs
+  off even the owner cannot read container logs); a release meant for real
+  users must turn them off (logs contain client IPs).
+  `--no-public-sysinfo` always.
 * Phala writes the app-compose itself (its canonical form, not ours), so the
-  **compose hash to pin is the one Phala reports**. `--prepare-only` reports
-  it before anything runs. After deploying, `phala cvms get <id>
-  --include-compose --json` shows the exact document.
+  **compose hash to pin is the one Phala reports**: `phala cvms get <id>
+  --include-compose --json`, or the verifier's observed values (step 6).
 
 CLI notes from the live run: use **phala CLI 1.2.8**; the 1.2.9 npm package
 crashes at startup (`ERR_PACKAGE_PATH_NOT_EXPORTED` for `@noble/curves/ed25519`).
-`--prepare-only` exists only for *updates*, so for a new CVM read the hash
-after deploying with `phala cvms get <id> --include-compose --json`.
-In development, deploy with logs enabled (omit `--no-public-logs`): with
-logs off, even the owner cannot read container logs.
+`--prepare-only` exists only for *updates*.
 
-## 4. Deploy (you)
+## 4. Note the IDs
 
-Re-run step 3 without `--prepare-only` (or commit the prepared deployment as
-the CLI suggests). Note the **instance ID** and the **gateway domain** shown
-by `phala cvms get <id> --json` / the dashboard.
+`phala deploy` prints the CVM ID and the **app ID**; `phala cvms get <id>
+--json` shows the gateway base domain. Every new CVM gets a new app ID, so
+the TXT record of step 5 changes on every redeployment (an *update* with
+`--cvm-id` keeps it).
 
 ## 5. Bind the domain and publish DNS
 
@@ -133,6 +144,10 @@ Observed on the 2026-11-26 run (D-043):
 * With the domain bound, the gateway passes raw TLS to Caddy in the CVM, and
   Caddy obtained its Let's Encrypt certificate via **TLS-ALPN-01** about a
   minute later. Phala never sees the private key.
+* On the second run the TXT record still held the old app ID when the CVM
+  booted, so Caddy's first TLS-ALPN-01 attempts failed (`Error getting
+  validation data`); it retried by itself and got the certificate once the
+  new TXT value had propagated. Update DNS right after `phala deploy`.
 * `domains check` suggests a CAA `0 issue "letsencrypt.org"` record;
   optional (and later: pin `accounturi` to the CVM's ACME account).
 
@@ -155,6 +170,10 @@ Collect:
 attested-vw-verify https://vault.<your-domain> --policy policy/<release>.toml
 ```
 
-## 7. Tear down (you)
+## 7. Pause or tear down (you)
 
-`phala cvms delete <id>` stops all billing including disk.
+* `phala cvms stop <id>`: stops compute billing; the disk (≈ $0.10/GB/month),
+  the app ID and the domain binding stay, so `phala cvms start <id>` brings
+  the same release back with no DNS change.
+* `phala cvms delete <id>`: stops all billing, and also deletes the data
+  disk, the app (its ID) and the domain binding.

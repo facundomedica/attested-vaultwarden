@@ -686,3 +686,37 @@ maintainer's read-only GHCR token in the gitignored `registry.env`.
   parameters were inferred (tdx.small spec + fixture), not read from the
   live `vm_config`; future runs get it from the evidence. MRTD, RTMR1 and
   RTMR2 (the image-dependent registers) matched under the first guess.
+
+### D-046 Second live deployment, release 2026.11.1-phala-dev, tamper demo (2026-11-26)
+* New CVM `73eb5a7e-b94b-4cdb-8a71-e10e2bebaf6c`, app ID
+  `8a1aa54cc59424f894b82a5cad0d402b047ee0ab`, created with
+  `--node prod5 --image dstack-0.6.5` (same gateway, so the CNAME stayed;
+  same OS image and `tdx.small` shape, so the reproduced MRTD/RTMR0-2 stayed)
+  and **logs on** (`--public-logs`, the maintainer's choice for development).
+  The rendered compose and pre-launch script were byte-identical to
+  2026.11.0.
+* The new app ID meant a new TXT value. The CVM booted before DNS changed,
+  so Caddy's first TLS-ALPN-01 attempts failed (`Error getting validation
+  data`); it backed off, switched to LE staging for retries as certmagic
+  does, and got a production certificate about 10 minutes after the TXT
+  change. No intervention needed.
+* **Logs flag is measured.** Against the 2026.11.0 policy the new
+  deployment passes every check except `✗ Compose hash` (`5a5e2870…` vs
+  `17129f0b…`): the only difference in the app-compose is
+  `"public_logs": true`. So a policy also tells verifiers whether container
+  logs are exported, and turning logs on for a release users rely on is
+  visible.
+* Release `2026.11.1-phala-dev` drafted with `bootstrap-policy.sh`;
+  `measure-tdx.sh` reproduced all four registers against it
+  ([transcript](../policy/2026.11.1-phala-dev.reproduce.txt)); live verify
+  → PASS (`demo/live/verify-2026.11.1.expected.txt`).
+* **Tamper demo** (`demo/tamper/tamper.sh`, logs flag now matches the
+  release): `SIGNUPS_ALLOWED` "false" → "true" via a Phala update; verifier
+  → hardware evidence, measurements, RTMR3 replay, TLS binding all ✓,
+  `✗ Compose hash` (`04bd5e87…`), FAIL exit 1. Restoring the original
+  compose → PASS exit 0. Transcript: `demo/tamper/tamper.expected.txt`.
+  An operator change to one Vaultwarden setting is thus visible to anyone
+  running the verifier, even though the TLS key, the hardware and the OS
+  are unchanged.
+* The TXT record was edited by the assistant through the maintainer's
+  signed-in Cloudflare dashboard, at the maintainer's request.

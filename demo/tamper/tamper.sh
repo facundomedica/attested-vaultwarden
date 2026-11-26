@@ -6,6 +6,9 @@
 #
 # For a private GHCR sidecar set ENV_FILE=<path to registry.env>: the
 # phala-private render (pre-launch GHCR login) is then used for both deploys.
+# Logs: on by default (development); PUBLIC_LOGS=0 for a logs-off release.
+# The flags must match the ones the CVM was created with, otherwise the
+# "restored" app-compose differs from the release and cannot PASS.
 #
 # The change: SIGNUPS_ALLOWED "false" -> "true" (an operator quietly opening
 # registrations). It changes the app-compose, hence the measured compose
@@ -21,7 +24,8 @@ target=phala; [ -n "${ENV_FILE:-}" ] && target=phala-private
 mkdir -p "$gen/tampered"
 sed 's/SIGNUPS_ALLOWED: "false"/SIGNUPS_ALLOWED: "true"/' "$gen/orig/docker-compose.yml" > "$gen/tampered/docker-compose.yml"
 diff "$gen/orig/docker-compose.yml" "$gen/tampered/docker-compose.yml" || true
-flags=(--no-public-logs --no-public-sysinfo --wait)
+logs=--public-logs; [ "${PUBLIC_LOGS:-1}" = 0 ] && logs=--no-public-logs
+flags=("$logs" --no-public-sysinfo --wait)
 if [ -n "${ENV_FILE:-}" ]; then
   flags+=(--pre-launch-script "$gen/orig/pre-launch.sh" -e "$ENV_FILE" --no-dev-os)
 else
@@ -41,4 +45,4 @@ phala deploy --cvm-id "$cvm" -c "$gen/orig/docker-compose.yml" "${flags[@]}"
 sleep 20
 set +e; v | tee "$gen/restored.out"; code2=$?; set -e
 echo "verifier exit $code2 after restore (expected 0)"
-[ "$code" = 1 ] && grep -q "✗ Compose hash" "$gen/tampered.out"
+[ "$code" = 1 ] && grep -q "✗ Compose hash" "$gen/tampered.out" && [ "$code2" = 0 ]
