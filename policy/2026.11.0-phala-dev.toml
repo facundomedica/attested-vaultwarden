@@ -10,7 +10,7 @@
 # Development release: logs were off on the live run, the sidecar image is
 # private, and the PCK flags SMT/dynamic platform/cached keys are accepted.
 # The `attest` image below was built by attest-sidecar/publish.sh from commit
-# f2636a0; `attest-sidecar/reproducible-build.sh f2636a0` (linux/amd64)
+# fa874ea; `attest-sidecar/reproducible-build.sh fa874ea` (linux/amd64)
 # reproduces its digest (DECISIONS D-042). The release tag's later sidecar
 # source does not.
 # TCB status / advisories at drafting time: UpToDate 

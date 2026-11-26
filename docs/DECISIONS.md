@@ -498,7 +498,7 @@ ARM Mac use `PLATFORM=linux/arm64` because amd64 would run under emulation.
 Uses a dedicated `docker-container` buildx builder with BuildKit pinned
 (`moby/buildkit:v0.29.0@sha256:0039c1d4…`); the default `docker` driver
 cannot export OCI archives. **Result 2026-11-26:** two clean arm64 builds of
-commit `8c8ffae` gave the same digest
+commit `d81a855` gave the same digest
 `sha256:495d22d097c0d5b88def4f8aa2a6a811021cba3616a046eee9ea5993c64dd545`.
 amd64: see the addendum below (checked later the same day).
 
@@ -570,7 +570,7 @@ policy file and docs must say so and must not claim C2 for that release.
 
 ### D-035 addendum
 amd64 reproducibility confirmed 2026-11-26: two clean `linux/amd64` builds
-(under emulation) of commit `10bbc2b` gave
+(under emulation) of commit `a25547a` gave
 `sha256:02f03ab9d9ec65c7366ee4a770401f92be8e4e9160cc5f350fcfc6482cfd3f28`.
 `publish.sh` pushes with OCI media types so the registry digest matches
 `reproducible-build.sh`.
@@ -597,7 +597,7 @@ the same environment. Design:
 Cost: one unmeasured value (substitution can only break the pull because
 images are pinned by digest), root code before the containers (pinned and
 reviewed), and verifiers cannot pull the image (they can rebuild it: the
-pushed digest `sha256:bf0734c5…` of commit `f2636a0` was reproduced
+pushed digest `sha256:bf0734c5…` of commit `fa874ea` was reproduced
 independently on 2026-11-26).
 
 ---
@@ -724,3 +724,12 @@ maintainer's read-only GHCR token in the gitignored `registry.env`.
   domain binding stay, so `phala cvms start 73eb5a7e-b94b-4cdb-8a71-e10e2bebaf6c`
   brings release 2026.11.1-phala-dev back with no DNS change.
   `phala cvms delete` would remove all of it (D-044).
+
+### D-047 History rewritten to the GitHub noreply address (2026-11-26)
+Before the first push the maintainer asked for the GitHub noreply author
+address. All commits were rewritten (`git filter-branch`, author and
+committer email only) and re-signed; trees and author/committer timestamps
+are unchanged, so `SOURCE_DATE_EPOCH` and therefore the reproducible
+sidecar digests are unchanged. Commit IDs changed; references in this log
+and in the policy headers use the new IDs (e.g. the deployed sidecar
+`bf0734c5…` was built from what is now `fa874ea`, previously `f2636a0`).
