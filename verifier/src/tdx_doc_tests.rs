@@ -77,6 +77,8 @@ fn case() -> Case {
             allow_cached_keys: FIXTURE_FLAGS.cached_keys,
             app_id: None,
             key_provider: Some(r#"{"name":"none","id":""}"#.into()),
+            // The fixture's OS image predates the `storage-encrypted` event.
+            require_storage_encrypted: false,
         }),
         sev_snp: None,
         mock: None,
@@ -259,4 +261,18 @@ fn unpinned_image_fails_even_with_valid_quote() {
     let r = run(&c);
     assert!(failed(&r).contains(&CheckId::Images));
     assert!(detail(&r, CheckId::Images).contains("not pinned"));
+}
+
+#[test]
+fn storage_encryption_required_but_not_reported() {
+    let mut c = case();
+    if let Some(t) = c.policy.tdx.as_mut() {
+        t.require_storage_encrypted = true;
+    }
+    let r = run(&c);
+    assert!(failed(&r).contains(&CheckId::EventLog), "{r}");
+    assert!(
+        detail(&r, CheckId::EventLog).contains("require_storage_encrypted"),
+        "{r}"
+    );
 }

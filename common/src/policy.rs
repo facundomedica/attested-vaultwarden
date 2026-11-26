@@ -110,6 +110,16 @@ pub struct TdxPolicy {
     /// by dstack, e.g. `{"name":"kms","id":"..."}`) must equal this exactly.
     #[serde(default)]
     pub key_provider: Option<String>,
+    /// Require the RTMR3 `storage-encrypted` event with payload `1` (dstack
+    /// OS 0.6.5+ emits it when the data disk is LUKS-encrypted). Default
+    /// true; set false only for OS images that predate the event. A payload
+    /// of `0` always fails, whatever this says.
+    #[serde(default = "default_true")]
+    pub require_storage_encrypted: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -300,6 +310,22 @@ mod tests {
             &format!("vaultwarden/server@sha256:{D}"),
         );
         assert!(Policy::from_toml(&ok).is_ok());
+    }
+
+    #[test]
+    fn storage_encryption_required_by_default() {
+        let z48 = "00".repeat(48);
+        let s = format!(
+            "schema = 1\nrelease = \"r\"\ndate = \"d\"\nplatform = \"tdx\"\n\
+             [tdx]\nmrtd = \"{z48}\"\nrtmr0 = \"{z48}\"\nrtmr1 = \"{z48}\"\nrtmr2 = \"{z48}\"\n\
+             compose_hash = \"{D}\"\n\
+             [[images]]\nservice = \"vw\"\nimage = \"a@sha256:{D}\"\n"
+        );
+        let p = Policy::from_toml(&s).expect("valid");
+        assert!(p.tdx.as_ref().is_some_and(|t| t.require_storage_encrypted));
+        let off = s.replace("[tdx]\n", "[tdx]\nrequire_storage_encrypted = false\n");
+        let p = Policy::from_toml(&off).expect("valid");
+        assert!(p.tdx.as_ref().is_some_and(|t| !t.require_storage_encrypted));
     }
 
     #[test]

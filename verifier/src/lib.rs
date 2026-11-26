@@ -492,6 +492,13 @@ fn check_tdx_measurements(
             facts.key_provider
         ));
     }
+    if tp.require_storage_encrypted && facts.storage_encrypted != Some(true) {
+        problems.push(
+            "no `storage-encrypted` = 1 event: the OS does not report an encrypted data disk, \
+             and the policy requires it (require_storage_encrypted)"
+                .to_owned(),
+        );
+    }
     if problems.is_empty() {
         report.pass(
             CheckId::EventLog,

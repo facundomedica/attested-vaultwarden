@@ -84,6 +84,10 @@ curl -sf "$url/.well-known/tee-attestation?nonce=$(z 64)" | jq -j .app_compose >
   echo "allow_dynamic_platform = $(flag dynamic_platform)"
   echo "allow_cached_keys = $(flag cached_keys)"
   echo "key_provider = $(jq '.observed.key_provider' "$r")"
+  # Pins this policy to one dstack app (its KMS-derived disk key). On Phala a
+  # new CVM gets a new app ID; updates of the same CVM keep it.
+  echo "app_id = \"$(o app_id)\""
+  echo "require_storage_encrypted = true"
   jq -r '.observed.images[] | "\n[[images]]\nservice = \"\(.[0])\"\nimage = \"\(.[1])\""' "$r"
 } > "$out"
 echo "wrote $out and $ac"
