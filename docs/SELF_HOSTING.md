@@ -19,9 +19,47 @@ routed (D-020); it gets its own section later.
 
 ## 1. Host requirements
 
-*TBD: filled in from the rental research (CPU generation, BIOS settings,
-host kernel, Intel PCS registration).* The host must be bare metal (or give
-TDX host access): cloud TDX VMs are TDX *guests* and cannot run `dstack-vmm`.
+From dstack's docs on `next` (checked 2026-11-26): `docs/deployment.md`,
+`docs/hardware-enablement.md`, `docs/tutorials/tdx-bios-configuration.md`,
+`docs/tutorials/tdx-hardware-verification.md`,
+`docs/tutorials/tdx-sgx-verification.md`.
+
+* **Bare metal** (or real TDX host access). Cloud TDX VMs are TDX *guests*:
+  Azure documents nested virtualisation as unsupported on DCesv5/DCesv6, AWS
+  has no TDX. They cannot run `dstack-vmm`.
+* **CPU:** 5th-gen Xeon (Emerald Rapids) or Xeon 6 (Granite Rapids). Most
+  4th-gen (Sapphire Rapids) SKUs only got TDX for selected cloud providers;
+  avoid them.
+* **Memory:** at least 2 channels populated per socket with identical DIMMs
+  (Phala: "8 RAM slots filled"); ≥ 16 GB RAM, 100 GB disk, public IPv4.
+* **BIOS:** 46-bit physical address limit off; TME on, TME-MT on, TME-MT
+  integrity off, TDX key split ≥ 1; TDX on; SEAM loader on; **SGX on with
+  SGX Auto MP Registration on** (dstack marks it critical). Needs KVM/IPMI
+  BIOS access from the provider.
+* **Host OS:** Ubuntu 24.04 (25.04 OK) with Canonical's TDX stack
+  (`canonical/tdx`), Intel kernel (e.g. `6.8.0-1028-intel`),
+  `kvm_intel.tdx=Y`, TDX-capable QEMU, `/dev/sgx_enclave` and
+  `/dev/sgx_provision` present (needed by dstack's local key provider).
+* **Platform registration:** register the platform with Intel PCS and run a
+  PCCS/qgsd; an unregistered platform makes CVMs boot-loop (dstack issue
+  #334). A previously "indirectly" registered rented box may need an SGX
+  factory reset.
+* **Known pitfalls:** Xeon 6 with TDX module 2.0 needed a dstack fix in the
+  local key provider (issue #1462, PR #1498, closed 2026-10-28), so use a
+  build that includes it; rented hosts often run old firmware, so the TCB may
+  be `OutOfDate` and cannot be fixed by us (policy must then either refuse
+  or explicitly accept it).
+
+Candidate hosts (prices seen 2026-11-26, ex VAT, all monthly terms):
+
+| Host | CPU | Price | TDX evidence |
+|------|-----|-------|--------------|
+| OVHcloud Advance-5 Intel | Xeon 6527P | €572.99/mo + setup ≈ 1 month | likely (KVM BIOS access; a dstack user reports this CPU working; OVH does not state TDX for this line) |
+| OVHcloud Scale-i1 2026 | Xeon 6517P | €599.99/mo + €599.99 setup | OVH's Scale Intel page names SGX/TDX for Xeon 6 |
+| Hetzner EX131 | Xeon Gold 6731P | €560.70/mo + €559 setup | unknown (no TDX or BIOS-change statement) |
+
+Ask the provider to confirm the BIOS options above **before** paying a
+setup fee.
 
 ## 2. Build or fetch the dstack OS image, compute expected measurements
 

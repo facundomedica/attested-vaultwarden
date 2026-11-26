@@ -495,3 +495,21 @@ remap `/src` and `/usr/local/cargo` and strip symbols; `cargo --locked`;
 type=oci,rewrite-timestamp=true`; digest = first manifest in the OCI
 `index.json`. Release target is `linux/amd64` (CI job); local checks on an
 ARM Mac use `PLATFORM=linux/arm64` because amd64 would run under emulation.
+Uses a dedicated `docker-container` buildx builder with BuildKit pinned
+(`moby/buildkit:v0.29.0@sha256:0039c1d4…`); the default `docker` driver
+cannot export OCI archives. **Result 2026-11-26:** two clean arm64 builds of
+commit `8c8ffae` gave the same digest
+`sha256:495d22d097c0d5b88def4f8aa2a6a811021cba3616a046eee9ea5993c64dd545`.
+amd64 not yet checked (CI job `reproducible-sidecar`).
+
+### D-036 Host choice for the first live run. **OPEN**
+Research 2026-11-26 (sources in SELF_HOSTING §1): rentable bare-metal TDX
+starts around €560-630/month plus a setup fee of about one month (OVHcloud
+Advance-5 / Scale-i1 2026, Hetzner EX131), and no provider documents TDX
+enablement explicitly. Servury (suggested by the maintainer) sells VMs only;
+its "Blackbox" line is an AMD SEV-SNP *guest* with bring-your-own UKI and a
+fixed provider OVMF (about $20/month, pre-order): unusable for dstack, but a
+match for the SEV-SNP stretch target (configfs-tsm + sev-snp-measure).
+Cheaper TDX alternative: dstack's `dstack-cloud` on a GCP C3 confidential VM
+(the dstack guest runs as the cloud CVM; different firmware measurements and
+a vTPM half that GetQuote does not carry).
