@@ -1,0 +1,18 @@
+[package]
+name = "attest-sidecar"
+description = "Attestation sidecar for Attested Vaultwarden: serves TEE evidence bound to the TLS key"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# Dependencies are kept to the minimum: this binary runs inside the TEE and is
+# part of what users trust. HTTP serving (axum) is added in M1.
+[dependencies]
+attested-vw-common.workspace = true
+base64.workspace = true
+tokio.workspace = true
+
+[lints]
+workspace = true

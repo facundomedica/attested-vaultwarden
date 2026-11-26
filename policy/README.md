@@ -1,0 +1,21 @@
+# Release policies
+
+One TOML file per deployed release, named `<release>.toml`, committed together
+with a signed git tag `release/<release>`. The format is defined and validated
+by `common/src/policy.rs`.
+
+A policy pins:
+
+* the platform (`tdx`, `sev-snp`);
+* expected firmware/OS measurements (TDX: MRTD, RTMR0-2; SNP: launch
+  measurement);
+* the hash of the measured compose document (TDX/dstack: `compose_hash`);
+* the allowlist of container images, each pinned by `@sha256:` digest;
+* accepted TCB status.
+
+Upgrades change measurements, so every legitimate version must appear here.
+A deployment whose measurements match no committed policy is, by definition,
+not running published software.
+
+No policy files exist yet: the first one is produced in M3 from a real
+deployment. `mock-local.toml` (M1) is for the INSECURE local mock only.
