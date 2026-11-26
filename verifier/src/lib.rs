@@ -22,7 +22,7 @@ use attested_vw_common::schema::{AttestationResponse, Platform, SCHEMA_VERSION};
 use attested_vw_common::tls;
 
 pub use net::Roots;
-pub use report::{Check, CheckId, Report};
+pub use report::{Check, CheckId, Observed, Report};
 
 /// Options controlling a verification run.
 #[derive(Debug, Clone)]
@@ -275,6 +275,18 @@ pub fn check_document(
 
     // Measurements, event log and the measured compose hash.
     let got_compose = compose::compose_hash(doc.app_compose.as_bytes());
+    report.observed.compose_hash_served = Some(hex::encode(got_compose));
+    if let evidence::Measured::Tdx(q) = &verified.measured {
+        let o = &mut report.observed;
+        o.tcb_status = Some(q.tcb_status.clone());
+        o.advisory_ids = q.advisory_ids.clone();
+        o.pck_flags_set = q.pck_flags_set.iter().map(|s| s.to_string()).collect();
+        o.mrtd = Some(hex::encode(q.mr_td));
+        o.rtmr0 = Some(hex::encode(q.rt_mr[0]));
+        o.rtmr1 = Some(hex::encode(q.rt_mr[1]));
+        o.rtmr2 = Some(hex::encode(q.rt_mr[2]));
+        o.rtmr3 = Some(hex::encode(q.rt_mr[3]));
+    }
     let measured_compose: Option<[u8; 32]> = match &verified.measured {
         evidence::Measured::Mock => {
             report.pass(CheckId::Measurements, "INSECURE MOCK: nothing was measured");
@@ -367,6 +379,10 @@ pub fn check_document(
                 .iter()
                 .map(|i| (i.service.clone(), i.image.clone()))
                 .collect();
+            report.observed.images = imgs
+                .iter()
+                .map(|i| (i.service.clone(), i.image.clone()))
+                .collect();
             let problems = compose::check_images(&imgs, &allow);
             if problems.is_empty() {
                 report.pass(
@@ -445,6 +461,9 @@ fn check_tdx_measurements(
             return None;
         }
     };
+    report.observed.compose_hash_measured = Some(hex::encode(facts.compose_hash));
+    report.observed.app_id = Some(hex::encode(&facts.app_id));
+    report.observed.key_provider = Some(facts.key_provider.clone());
     let mut problems = Vec::new();
     if let Some(want) = &tp.app_id
         && !hex_eq(want, &facts.app_id)

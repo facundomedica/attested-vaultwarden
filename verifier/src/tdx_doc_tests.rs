@@ -141,6 +141,20 @@ fn real_quote_baseline() {
     assert!(detail(&r, CheckId::EventLog).contains("9 RTMR3 events"));
     assert!(detail(&r, CheckId::ComposeHash).contains("not what runs"));
     assert_eq!(r.exit_code(), 1);
+    // Observed values come from the signed quote and the replayed log.
+    assert_eq!(
+        r.observed.compose_hash_measured.as_deref(),
+        Some(FIXTURE_COMPOSE_HASH)
+    );
+    assert_eq!(
+        r.observed.key_provider.as_deref(),
+        Some(r#"{"name":"none","id":""}"#)
+    );
+    assert_eq!(r.observed.tcb_status.as_deref(), Some("UpToDate"));
+    assert_eq!(
+        r.observed.pck_flags_set,
+        vec!["smt", "dynamic_platform", "cached_keys"]
+    );
 }
 
 #[test]

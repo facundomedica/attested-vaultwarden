@@ -71,6 +71,9 @@ pub struct VerifiedQuote {
     pub rt_mr: [[u8; 48]; 4],
     pub report_data: [u8; 64],
     pub td_attributes: [u8; 8],
+    /// PCK certificate flags that are explicitly true (`smt`,
+    /// `dynamic_platform`, `cached_keys`), for the report and policy drafts.
+    pub pck_flags_set: Vec<&'static str>,
 }
 
 /// PCK platform flags the policy is willing to accept (all default false).
@@ -116,7 +119,19 @@ pub fn verify_quote(
         .map_err(|e| TdxError::Quote(format!("{e:#}")))?;
     let td = claims.report.as_td10().ok_or(TdxError::NotTd)?;
     check_td_attributes(&td.td_attributes)?;
+    let pck = &claims.platform.pck;
+    let mut pck_flags_set = Vec::new();
+    for (name, flag) in [
+        ("smt", pck.smt_enabled),
+        ("dynamic_platform", pck.dynamic_platform),
+        ("cached_keys", pck.cached_keys),
+    ] {
+        if flag == dcap_qvl::PckCertFlag::True {
+            pck_flags_set.push(name);
+        }
+    }
     Ok(VerifiedQuote {
+        pck_flags_set,
         tcb_status: claims.tcb.status.to_string(),
         advisory_ids: claims.tcb.advisory_ids.clone(),
         mr_td: td.mr_td,

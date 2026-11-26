@@ -70,6 +70,27 @@ pub struct Report {
     pub checks: Vec<Check>,
     /// Context lines (trust roots, retries). Not checks.
     pub notes: Vec<String>,
+    /// Values read from the evidence and document, for drafting a policy
+    /// from a live deployment. Hardware-backed only if the `evidence` check
+    /// passed; never a substitute for independently computed measurements.
+    pub observed: Observed,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct Observed {
+    pub tcb_status: Option<String>,
+    pub advisory_ids: Vec<String>,
+    pub pck_flags_set: Vec<String>,
+    pub mrtd: Option<String>,
+    pub rtmr0: Option<String>,
+    pub rtmr1: Option<String>,
+    pub rtmr2: Option<String>,
+    pub rtmr3: Option<String>,
+    pub compose_hash_measured: Option<String>,
+    pub compose_hash_served: Option<String>,
+    pub app_id: Option<String>,
+    pub key_provider: Option<String>,
+    pub images: Vec<(String, String)>,
 }
 
 impl Report {
@@ -81,6 +102,7 @@ impl Report {
             insecure_mock: false,
             checks: Vec::new(),
             notes: Vec::new(),
+            observed: Observed::default(),
         }
     }
 
