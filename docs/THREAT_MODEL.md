@@ -1,6 +1,6 @@
 # Threat model
 
-> Status: **draft (M0)**. Research prototype. Sections marked *TBD* depend on
+> Status: **draft (M2)**. Research prototype. Sections marked *TBD* depend on
 > platform facts still being verified; see [DECISIONS.md](DECISIONS.md).
 
 ## 1. What this project claims
@@ -11,7 +11,7 @@ the hardware vendor's attestation root and the TEE itself are not broken**:
 
 | # | Claim | Established by |
 |---|-------|----------------|
-| C1 | The responder is a genuine Intel TDX (or AMD SEV-SNP) guest, debug off, TCB acceptable to the policy. | Quote/report signature chain to the Intel/AMD root, TCB status, debug attribute. |
+| C1 | The responder is a genuine Intel TDX (or AMD SEV-SNP) guest, debug off, TCB acceptable to the policy. | Quote/report signature chain to the Intel/AMD root, collateral validity, TCB status and PCK platform flags (SMT, dynamic platform, cached keys) as the policy allows, debug attribute. SNP: VCEK bound to the report's TCB and chip; **no revocation (CRL) check yet**. |
 | C2 | The guest booted the published firmware and OS image. | MRTD + RTMR0-2 (TDX) or launch measurement (SNP) equal the policy. |
 | C3 | The guest runs the published compose document, and every container image in it is pinned by digest and allowlisted. | RTMR3 replay reproduces the quoted RTMR3 and its `compose-hash` event equals the policy; images parsed from that measured document. |
 | C4 | The TLS private key behind the certificate the verifier just validated is held by that guest. | `report_data = SHA-512(tag ‖ nonce ‖ SHA-256(SPKI))` is signed by the TEE; the SPKI is taken from the verifier's own TLS handshake. |

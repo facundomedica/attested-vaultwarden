@@ -1,0 +1,35 @@
+# Test fixtures: provenance
+
+All files are copied unmodified from upstream repositories (fetched
+2026-11-26). Each directory carries the upstream licence. Negative test cases
+are derived *in the test code* by mutating copies in memory; the files here
+are never edited. Recorded collateral that we fetched ourselves is listed
+separately.
+
+| File | Upstream | Commit | Licence | SHA-256 |
+|------|----------|--------|---------|---------|
+| `dstack/tdx-lite-getquote.json` | Dstack-TEE/dstack `dstack/verifier/fixtures/` | `73b10c6774f5cde355f002326cbf96da93278995` | Apache-2.0 | `fbb00086b21b6f03a4d1ba14391eb7c7008ad7cf3d60f4ab423a3a0ec1cc2c23` |
+| `dcap-qvl/tdx_quote` | Phala-Network/dcap-qvl `sample/` | `f56d9ffc6662e8ec170ad474a31a6533b4bcd16c` | MIT | `c42f9164325024bca2757bc8819b11879a0a369132ea4e2b7c85df4805ea72db` |
+| `dcap-qvl/tdx_quote_collateral.json` | same | same | MIT | `b0a5f5fd620a8881b1eda45261fdf30dd930b49aff93231556645c81fcb4c0bc` |
+| `dcap-qvl/tdx_quote_outdated` | same | same | MIT | `4c453ea417a7863ed67c215fe4735d91e26f359c760e5984a277866d8d5758e9` |
+| `dcap-qvl/tdx_quote_outdated_collateral.json` | same | same | MIT | `05e91466e56352166c15a73654147c3d95d6f4ffa62bd150c3c8cbb1d75c3b15` |
+| `sev/report_milan.hex` | virtee/sev `tests/certs_data/` (crate 9.0.0) | crate `sev-9.0.0` | Apache-2.0 | `3d956e9104969a038031a6b63dd6c4b60000619d37702065994f7da76f88ae7d` |
+| `sev/vcek_milan.der` | same | same | Apache-2.0 | `3bbfb6ee259f75a95d13168cfdf2e034181bb93c7c016825731cbe8ea16c95e1` |
+
+Notes:
+
+* `dstack/tdx-lite-getquote.json` is a raw dstack guest-agent v0 `GetQuote`
+  response captured upstream from a dstack-0.6.0-rc0 CVM (2 vCPU, 2 GiB,
+  QEMU 8.2.2, `report_data` = 64 × `0x42`, key provider `none`). It has no
+  collateral and no app-compose document.
+* `sev/report_milan.hex` is a hex-encoded 1184-byte SEV-SNP attestation
+  report signed by `vcek_milan.der`; ARK/ASK come from the `sev` crate's
+  built-in Milan certificates.
+
+## Recorded by us
+
+| File | How | When | SHA-256 |
+|------|-----|------|---------|
+| `dstack/tdx-lite-collateral.json` | `cargo run -p attested-vw-verify --example record_collateral -- dstack/tdx-lite-getquote.json …` against Intel PCS (`https://api.trustedservices.intel.com`) | 2026-11-26 (`recorded_at_unix` = 1795707880; TCB info issueDate 2026-11-26T15:20:19Z, nextUpdate 2026-12-26T15:20:19Z) | `5b2a3be63b5ccc89c6a1f42670843a3322287f85bf69ecf20c65d4328940ff66` |
+
+Collateral is Intel-signed; tests verify it offline at `recorded_at_unix`.

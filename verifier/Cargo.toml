@@ -18,6 +18,7 @@ path = "src/main.rs"
 [dependencies]
 attested-vw-common.workspace = true
 base64.workspace = true
+dcap-qvl = { version = "0.7.1", default-features = false, features = ["std", "rustcrypto", "default-x509", "report"] }
 bytes = "1"
 clap.workspace = true
 getrandom = "0.3"
@@ -25,13 +26,17 @@ hex.workspace = true
 http-body-util = "0.1"
 hyper = { version = "1", default-features = false, features = ["client", "http1"] }
 hyper-util = { version = "0.1", default-features = false, features = ["tokio"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 serde.workspace = true
+sev = { version = "9.0.0", default-features = false, features = ["snp", "crypto_nossl"] }
+sha2.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["time"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 webpki-roots = "1"
+x509-parser = { version = "0.18", default-features = false }
 
 [lints]
 workspace = true

@@ -24,6 +24,8 @@ pub enum CheckId {
     ReportData,
     /// Platform measurements equal the policy.
     Measurements,
+    /// RTMR3 event log replays to the quoted RTMR3 (TDX).
+    EventLog,
     /// Hash of the measured compose document equals the policy.
     ComposeHash,
     /// Every image in the measured compose is digest-pinned and allowlisted.
@@ -40,6 +42,7 @@ impl CheckId {
             CheckId::Evidence => "Hardware evidence signature, TCB, debug off",
             CheckId::ReportData => "report_data matches nonce + TLS key",
             CheckId::Measurements => "Firmware / OS measurements",
+            CheckId::EventLog => "Runtime event log (RTMR3 replay)",
             CheckId::ComposeHash => "Compose hash (published software)",
             CheckId::Images => "Images pinned and allowlisted",
         }

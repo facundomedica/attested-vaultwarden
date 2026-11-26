@@ -75,13 +75,6 @@ fn doc(f: &Fixture, nonce: Nonce, spki: SpkiSha256, app_compose: &str) -> Vec<u8
     serde_json::to_vec(&d).unwrap()
 }
 
-fn opts(allow_mock: bool) -> Options {
-    Options {
-        allow_insecure_mock: allow_mock,
-        roots: Roots::WebPki,
-    }
-}
-
 fn run(f: &Fixture, body: &[u8], allow_mock: bool) -> Report {
     let mut r = Report::new("https://t");
     r.pass(CheckId::Tls, "test");
@@ -90,7 +83,7 @@ fn run(f: &Fixture, body: &[u8], allow_mock: bool) -> Report {
         &f.spki,
         &f.nonce,
         &f.policy,
-        &opts(allow_mock),
+        &evidence::Context::mock(allow_mock),
         &mut r,
     );
     r

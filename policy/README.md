@@ -11,7 +11,11 @@ A policy pins:
   measurement);
 * the hash of the measured compose document (TDX/dstack: `compose_hash`);
 * the allowlist of container images, each pinned by `@sha256:` digest;
-* accepted TCB status.
+* accepted TCB status and PCK platform flags (`allow_smt`,
+  `allow_dynamic_platform`, `allow_cached_keys`, all default false);
+* optionally the RTMR3 `app_id` and `key_provider` (D-020: these differ
+  between Phala Cloud and self-hosted dstack, so each target gets its own
+  policy file).
 
 Upgrades change measurements, so every legitimate version must appear here.
 A deployment whose measurements match no committed policy is, by definition,

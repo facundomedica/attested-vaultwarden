@@ -33,6 +33,10 @@ struct Args {
     /// roots (local development).
     #[arg(long)]
     ca: Option<PathBuf>,
+    /// Intel PCS/PCCS base URL for TDX collateral. Collateral is Intel-signed,
+    /// so a cache such as https://pccs.phala.network affects availability only.
+    #[arg(long, default_value = attested_vw_verifier::fetch::INTEL_PCS_URL)]
+    pccs_url: String,
 }
 
 fn load(args: &Args) -> Result<(Policy, Roots), String> {
@@ -71,10 +75,9 @@ fn main() -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    let opts = Options {
-        allow_insecure_mock: args.allow_insecure_mock,
-        roots,
-    };
+    let mut opts = Options::new(roots);
+    opts.allow_insecure_mock = args.allow_insecure_mock;
+    opts.pccs_url = args.pccs_url.clone();
     let report = rt.block_on(verify(&args.url, &policy, &opts));
     if args.json {
         match serde_json::to_string_pretty(&report) {

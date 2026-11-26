@@ -9,8 +9,11 @@
 #![cfg_attr(test, allow(clippy::panic, clippy::unwrap_used, clippy::expect_used))]
 
 pub mod evidence;
+pub mod fetch;
 pub mod net;
 pub mod report;
+pub mod snp;
+pub mod tdx;
 
 use attested_vw_common::compose;
 use attested_vw_common::policy::Policy;
@@ -29,12 +32,35 @@ pub struct Options {
     pub allow_insecure_mock: bool,
     /// Trust anchors for the TLS connection.
     pub roots: Roots,
+    /// Where to fetch Intel DCAP collateral (Intel PCS by default). The
+    /// collateral is Intel-signed, so the source affects availability only.
+    pub pccs_url: String,
+    /// AMD Key Distribution Service base URL (VCEK certificates).
+    pub kds_url: String,
+}
+
+impl Options {
+    pub fn new(roots: Roots) -> Self {
+        Self {
+            allow_insecure_mock: false,
+            roots,
+            pccs_url: fetch::INTEL_PCS_URL.to_owned(),
+            kds_url: fetch::AMD_KDS_URL.to_owned(),
+        }
+    }
 }
 
 fn fresh_nonce() -> Result<Nonce, String> {
     let mut n = [0u8; 32];
     getrandom::fill(&mut n).map_err(|e| format!("OS random number generator failed: {e}"))?;
     Ok(Nonce(n))
+}
+
+fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 /// Verify a deployment at `target` (an `https://` origin) against `policy`.
@@ -45,12 +71,17 @@ fn fresh_nonce() -> Result<Nonce, String> {
 /// both times.
 pub async fn verify(target: &str, policy: &Policy, opts: &Options) -> Report {
     let first = verify_once(target, policy, opts).await;
-    let spki_only = first
+    let failures: Vec<CheckId> = first
         .checks
         .iter()
         .filter(|c| !c.passed)
-        .all(|c| matches!(c.id, CheckId::SpkiBinding | CheckId::ReportData));
-    if first.passed() || !spki_only || first.checks.iter().all(|c| c.passed) {
+        .map(|c| c.id)
+        .collect();
+    let spki_only = !failures.is_empty()
+        && failures
+            .iter()
+            .all(|id| matches!(id, CheckId::SpkiBinding | CheckId::ReportData));
+    if !spki_only {
         return first;
     }
     let mut second = verify_once(target, policy, opts).await;
@@ -108,8 +139,28 @@ async fn verify_once(target: &str, policy: &Policy, opts: &Options) -> Report {
             fetched.tls_version, t.host, t.port
         ),
     );
-    check_document(&fetched.body, &spki, &nonce, policy, opts, &mut report);
+
+    // Fetch platform endorsements (Intel collateral / AMD VCEK) for the
+    // evidence. These are signed by the vendor and checked offline below.
+    let mut ctx = evidence::Context::mock(opts.allow_insecure_mock);
+    ctx.now_secs = unix_now();
+    if let Ok(doc) = serde_json::from_slice::<AttestationResponse>(&fetched.body)
+        && let Ok(quote) = evidence::decode_quote(&doc.evidence)
+    {
+        match doc.platform {
+            Platform::Tdx => {
+                ctx.tdx_collateral = fetch::tdx_collateral(&opts.pccs_url, &quote).await
+            }
+            Platform::SevSnp => ctx.snp_vcek_der = fetch::snp_vcek(&opts.kds_url, &quote).await,
+            Platform::Mock => {}
+        }
+    }
+    check_document(&fetched.body, &spki, &nonce, policy, &ctx, &mut report);
     report
+}
+
+fn hex_eq(expected: &str, got: &[u8]) -> bool {
+    expected.eq_ignore_ascii_case(&hex::encode(got))
 }
 
 /// All checks after the network step. `our_spki` and `our_nonce` come from
@@ -119,7 +170,7 @@ pub fn check_document(
     our_spki: &SpkiSha256,
     our_nonce: &Nonce,
     policy: &Policy,
-    opts: &Options,
+    ctx: &evidence::Context,
     report: &mut Report,
 ) {
     // Fetch / parse.
@@ -196,7 +247,7 @@ pub fn check_document(
     }
 
     // Evidence.
-    let verified = match evidence::verify(doc.platform, &doc.evidence, opts.allow_insecure_mock) {
+    let verified = match evidence::verify(doc.platform, &doc.evidence, policy, ctx) {
         Ok(v) => v,
         Err(e) => {
             report.fail(CheckId::Evidence, e.to_string());
@@ -206,7 +257,7 @@ pub fn check_document(
     if doc.platform == Platform::Mock {
         report.insecure_mock = true;
     }
-    report.pass(CheckId::Evidence, verified.summary);
+    report.pass(CheckId::Evidence, verified.summary.clone());
 
     // report_data recomputed from OUR values only.
     let expected = report_data::compute(our_nonce, our_spki);
@@ -218,33 +269,77 @@ pub fn check_document(
     } else {
         report.fail(
             CheckId::ReportData,
-            "signed report_data does not match our nonce and TLS key".to_owned(),
+            "signed report_data does not match our nonce and TLS key",
         );
     }
 
-    // Measurements.
-    match doc.platform {
-        Platform::Mock => report.pass(CheckId::Measurements, "INSECURE MOCK: nothing was measured"),
-        _ => report.fail(CheckId::Measurements, "not implemented yet (M2)"),
-    }
+    // Measurements, event log and the measured compose hash.
+    let got_compose = compose::compose_hash(doc.app_compose.as_bytes());
+    let measured_compose: Option<[u8; 32]> = match &verified.measured {
+        evidence::Measured::Mock => {
+            report.pass(CheckId::Measurements, "INSECURE MOCK: nothing was measured");
+            report.pass(CheckId::EventLog, "INSECURE MOCK: no event log");
+            // Nothing measured it; compare the served document to the policy
+            // only to exercise the pipeline.
+            Some(got_compose)
+        }
+        evidence::Measured::Tdx(q) => check_tdx_measurements(q, &doc, policy, report),
+        evidence::Measured::Snp(r) => {
+            match policy.sev_snp.as_ref() {
+                Some(sp) if hex_eq(&sp.measurement, &r.measurement) => report.pass(
+                    CheckId::Measurements,
+                    format!(
+                        "launch measurement {} matches release {}",
+                        hex::encode(r.measurement),
+                        policy.release
+                    ),
+                ),
+                Some(sp) => report.fail(
+                    CheckId::Measurements,
+                    format!(
+                        "launch measurement {} but policy expects {}",
+                        hex::encode(r.measurement),
+                        sp.measurement
+                    ),
+                ),
+                None => report.fail(CheckId::Measurements, "policy has no sev_snp section"),
+            }
+            report.fail(
+                CheckId::EventLog,
+                "SEV-SNP: binding the compose document to the launch measurement is not implemented yet (stretch goal)",
+            );
+            None
+        }
+    };
 
-    // Compose hash.
     let expected_hash = match policy.platform {
         Platform::Mock => policy.mock.as_ref().map(|m| m.compose_hash.as_str()),
         Platform::Tdx => policy.tdx.as_ref().map(|t| t.compose_hash.as_str()),
         Platform::SevSnp => None,
     };
-    let got = hex::encode(compose::compose_hash(doc.app_compose.as_bytes()));
-    match expected_hash {
-        Some(e) if e.eq_ignore_ascii_case(&got) => report.pass(
+    let got_hex = hex::encode(got_compose);
+    match (expected_hash, measured_compose) {
+        (None, _) => report.fail(CheckId::ComposeHash, "policy has no compose hash for this platform"),
+        (Some(_), None) => report.fail(CheckId::ComposeHash, "no measured compose hash available"),
+        (Some(e), Some(m)) if !hex_eq(e, &m) => report.fail(
             CheckId::ComposeHash,
-            format!("SHA-256(app-compose) = {got} matches release {}", policy.release),
+            format!(
+                "measured compose hash {} but release {} expects {e}: the server runs a different compose/config",
+                hex::encode(m),
+                policy.release
+            ),
         ),
-        Some(e) => report.fail(
+        (Some(_), Some(m)) if m != got_compose => report.fail(
             CheckId::ComposeHash,
-            format!("SHA-256(app-compose) = {got}, policy expects {e}: server runs a different compose/config than release {}", policy.release),
+            format!(
+                "served app-compose hashes to {got_hex}, which is not the measured {}: the served document is not what runs",
+                hex::encode(m)
+            ),
         ),
-        None => report.fail(CheckId::ComposeHash, "policy has no compose hash for this platform"),
+        (Some(_), Some(_)) => report.pass(
+            CheckId::ComposeHash,
+            format!("measured = SHA-256(served app-compose) = {got_hex} = release {}", policy.release),
+        ),
     }
 
     // Images, derived from the (hash-checked) app-compose, never from
@@ -280,5 +375,99 @@ pub fn check_document(
     }
 }
 
+/// MRTD/RTMR0-2 against the policy, RTMR3 replay and RTMR3 facts. Returns
+/// the compose hash measured into RTMR3 if the event log checks out.
+fn check_tdx_measurements(
+    q: &tdx::VerifiedQuote,
+    doc: &AttestationResponse,
+    policy: &Policy,
+    report: &mut Report,
+) -> Option<[u8; 32]> {
+    let Some(tp) = policy.tdx.as_ref() else {
+        report.fail(CheckId::Measurements, "policy has no tdx section");
+        return None;
+    };
+    let regs = [
+        ("MRTD", tp.mrtd.as_str(), &q.mr_td),
+        ("RTMR0", tp.rtmr0.as_str(), &q.rt_mr[0]),
+        ("RTMR1", tp.rtmr1.as_str(), &q.rt_mr[1]),
+        ("RTMR2", tp.rtmr2.as_str(), &q.rt_mr[2]),
+    ];
+    let bad: Vec<String> = regs
+        .iter()
+        .filter(|(_, want, got)| !hex_eq(want, got.as_slice()))
+        .map(|(n, want, got)| format!("{n} is {} (policy: {want})", hex::encode(got)))
+        .collect();
+    if bad.is_empty() {
+        report.pass(
+            CheckId::Measurements,
+            format!(
+                "MRTD, RTMR0-2 match the published OS image of release {}",
+                policy.release
+            ),
+        );
+    } else {
+        report.fail(
+            CheckId::Measurements,
+            format!("unknown firmware/OS measurement: {}", bad.join("; ")),
+        );
+    }
+
+    let Some(log) = doc.evidence.event_log.as_deref() else {
+        report.fail(CheckId::EventLog, "TDX evidence has no event log");
+        return None;
+    };
+    let events = match tdx::check_rtmr3(log, &q.rt_mr[3]) {
+        Ok(e) => e,
+        Err(e) => {
+            report.fail(CheckId::EventLog, e.to_string());
+            return None;
+        }
+    };
+    let facts = match tdx::rtmr3_facts(&events) {
+        Ok(f) => f,
+        Err(e) => {
+            report.fail(CheckId::EventLog, e.to_string());
+            return None;
+        }
+    };
+    let mut problems = Vec::new();
+    if let Some(want) = &tp.app_id
+        && !hex_eq(want, &facts.app_id)
+    {
+        problems.push(format!(
+            "app-id is {} (policy: {want})",
+            hex::encode(&facts.app_id)
+        ));
+    }
+    if let Some(want) = &tp.key_provider
+        && *want != facts.key_provider
+    {
+        problems.push(format!(
+            "key-provider is {} (policy: {want})",
+            facts.key_provider
+        ));
+    }
+    if problems.is_empty() {
+        report.pass(
+            CheckId::EventLog,
+            format!(
+                "{} RTMR3 events replay to the quoted RTMR3; app-id {}, key-provider {}",
+                events.len(),
+                hex::encode(&facts.app_id),
+                facts.key_provider
+            ),
+        );
+        Some(facts.compose_hash)
+    } else {
+        report.fail(CheckId::EventLog, problems.join("; "));
+        None
+    }
+}
+
+#[cfg(test)]
+mod tdx_doc_tests;
+#[cfg(test)]
+mod tdx_tests;
 #[cfg(test)]
 mod tests;

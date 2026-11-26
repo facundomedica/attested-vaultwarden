@@ -6,6 +6,15 @@ all-features = true
 [advisories]
 version = 2
 yanked = "deny"
+# Both reach us only through VirTEE `sev` (crypto_nossl), which the verifier
+# uses to VERIFY public signatures (AMD ARK/ASK RSA-PSS, VCEK/report ECDSA
+# P-384) over public data. No private key exists in our process, so timing
+# side channels on secret-dependent operations have nothing to leak.
+# Re-evaluate whenever `sev` moves to rsa 0.10 / crypto-bigint 0.6.
+ignore = [
+    { id = "RUSTSEC-2023-0071", reason = "rsa: Marvin timing attack needs a private key; sev only verifies signatures" },
+    { id = "RUSTSEC-2026-0387", reason = "crypto-bigint 0.5 timing variability; only public-key verification on public inputs via sev/p384" },
+]
 
 [licenses]
 version = 2
@@ -20,6 +29,11 @@ allow = [
     "Unicode-3.0",
     "Zlib",
     "CDLA-Permissive-2.0",
+]
+
+# MPL-2.0 (file-level copyleft), used unmodified via sev -> dirs -> dirs-sys.
+exceptions = [
+    { allow = ["MPL-2.0"], crate = "option-ext" },
 ]
 
 [bans]

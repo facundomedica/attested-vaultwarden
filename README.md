@@ -1,6 +1,6 @@
 # Attested Vaultwarden
 
-> **Status: research prototype, milestone M1 (local end-to-end with an INSECURE mock; no TEE yet).** Nothing here is
+> **Status: research prototype, milestone M2 (TDX and SEV-SNP evidence verification against recorded real quotes; no live TEE deployment yet).** Nothing here is
 > production-ready. Do not store real passwords in a deployment of this
 > project. The threat model in [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md)
 > says exactly what is and is not protected.
@@ -57,7 +57,7 @@ that the verifier reports the mock (exit 2, never PASS), refuses it without
 and against a policy with a different compose hash. See
 [deploy/local/README.md](deploy/local/README.md).
 
-## Verifying a deployment (target UX, TDX path not yet implemented)
+## Verifying a deployment (no live deployment yet)
 
 ```bash
 attested-vw-verify https://vault.example.com --policy policy/<release>.toml

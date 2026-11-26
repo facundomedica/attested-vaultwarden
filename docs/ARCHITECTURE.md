@@ -1,6 +1,6 @@
 # Architecture
 
-> Status: **draft (M1)**. Local mock layout: `deploy/local/`. Facts about dstack are from dstack v0.6.6 (commit
+> Status: **draft (M2)**. Local mock layout: `deploy/local/`. Facts about dstack are from dstack v0.6.6 (commit
 > `c873038`, 2026-11-20); see [DECISIONS.md](DECISIONS.md) for sources.
 
 ## 1. Overview
@@ -76,8 +76,9 @@ verifier                                          app CVM
    │ ◀── JSON {quote, event_log, nonce, spki_sha256=spki', app_compose, …}
    │ 3. verify quote (dcap-qvl + Intel PCS collateral): signature, TCB, debug off
    │ 4. check spki' == spki, nonce echo, report_data == SHA-512(tag ‖ nonce ‖ spki)
-   │ 5. MRTD, RTMR0-2 == policy; replay event_log → RTMR3 == quote.RTMR3;
-   │    compose-hash event == SHA-256(app_compose bytes) == policy.compose_hash
+   │ 5. MRTD, RTMR0-2 == policy; replay event_log (digests recomputed)
+   │    → RTMR3 == quote.RTMR3; compose-hash event == policy.compose_hash
+   │    and == SHA-256(served app_compose bytes)
    │ 6. parse docker_compose_file from app_compose; every image @sha256 and allowlisted
    │ 7. report ✓/✗, exit code
 ```

@@ -251,8 +251,8 @@ provider wire protocol in M3. M1 integration uses `Mock`.
   (+ collateral): quote-only (no event log).
 * VirTEE `sev` `tests/certs_data/report_milan.hex`, `vcek_milan.der`,
   `cert_chain_milan`.
-* Licences: dstack MIT, dcap-qvl MIT, sev Apache-2.0. Copy with attribution
-  in `testdata/SOURCES.md`.
+* Licences (checked against the LICENSE files): dstack Apache-2.0, dcap-qvl MIT, sev Apache-2.0. Copied with attribution
+  in `verifier/testdata/SOURCES.md`.
 * Negative cases (debug quote, bad signature) are derived by mutating real
   fixtures; documented per file.
 
@@ -290,9 +290,21 @@ official image (`XDG_DATA_HOME=/data`). Leaf certs at
 Default issuers: Let's Encrypt then ZeroSSL fallback. For attested releases
 we pin a single issuer so the sidecar knows which directory to read.
 
-### D-020 Phala Cloud vs self-hosted dstack. **OPEN**
-Needs maintainer decision (cost, TDX hardware). Also determines OS image
-version (D-004).
+### D-020 Phala Cloud and self-hosted dstack: support both (decided 2026-11-26)
+Both run the same dstack OS and guest agent, so the sidecar and verifier are
+shared. What differs and therefore lives in the per-release policy, never in
+code:
+
+* OS image (MRTD, RTMR0-2) and VM size: each deployment target gets its own
+  policy file;
+* key provider recorded in RTMR3 (`key-provider` event: e.g. Phala's KMS vs a
+  self-hosted KMS or local key provider), optionally pinned by the policy;
+* `app-id` (Phala may assign it; self-hosted defaults to a prefix of the
+  compose hash), optionally pinned;
+* gateway base domain and TLS passthrough setup (ARCHITECTURE §2);
+* guest-agent API version (v0 vs v1, D-004).
+
+Deployment docs will have one section per target.
 
 ---
 
@@ -314,10 +326,16 @@ requires one, so `deploy/local/up.sh` pushes it to a throwaway registry on
 `127.0.0.1:5001` and pins `localhost:5001/attest-sidecar@sha256:…`. This
 mirrors M3, where the sidecar must be pushed to a public registry.
 
-**OPEN for M3:** users must be able to tie the sidecar digest to source.
-Options: reproducible build (pinned toolchain image, `--locked`,
-`SOURCE_DATE_EPOCH`, compare digests) or GitHub artifact attestations on our
-own image (same mechanism Vaultwarden uses). Pushing requires your OK.
+**Decided 2026-11-26 (maintainer delegated the choice):** users must be able
+to tie the sidecar digest to source. Primary: a **reproducible build**
+(digest-pinned toolchain and runtime images, `cargo --locked`,
+`SOURCE_DATE_EPOCH` from the release commit, path remapping, BuildKit
+`rewrite-timestamp`), so anyone can rebuild a tag and compare digests without
+trusting our CI. Secondary: GitHub artifact attestations (Sigstore build
+provenance) on the published image, the same mechanism Vaultwarden uses, so
+the verifier's optional provenance step treats our image like upstream's.
+Implemented in M3; CI builds twice and fails if digests differ. Publishing
+the image needs the maintainer's OK.
 
 ### D-022 Caddyfile embedded via compose `configs.content`
 Keeps the proxy configuration inside the measured compose document. Docker
@@ -362,3 +380,63 @@ Errors to clients are generic; details go to the sidecar log only.
 * Exit codes: 0 PASS, 1 FAIL, 2 "all checks passed but INSECURE MOCK".
 * MSRV raised to 1.88 because `time` ≥ 0.3.47 (fix for RUSTSEC-2026-0009,
   pulled in via `x509-parser` → `asn1-rs`) requires it.
+
+---
+
+## M2 decisions (2026-11-26)
+
+### D-027 TDX verification pipeline
+* `dcap_qvl::verify::QuoteVerifier::new_prod().verify_with_policy(quote,
+  collateral, now, &QuotePolicy)`; `QuotePolicy::strict(now)` plus the
+  policy's `accepted_tcb_status` and PCK platform flags. Report body via
+  `claims.report.as_td10()` (TD 1.0 and the TD 1.5 base).
+* **Finding:** the real dstack fixture's PCK certificate has `smtEnabled`,
+  `dynamicPlatform` and `cachedKeys` all true, and dcap-qvl's strict policy
+  rejects each. Policy fields `allow_smt`, `allow_dynamic_platform`,
+  `allow_cached_keys` (default false) make accepting them an explicit,
+  reviewable release decision. Expect real Phala / cloud hosts to need them.
+* Expected values were cross-checked with an independent Python parse of the
+  TD report body (MRTD at body offset 136, report_data at 520).
+* Collateral fetched at verification time from Intel PCS by default
+  (`--pccs-url` to change). Signed by Intel, so the source affects
+  availability only.
+* The collateral client (dcap-qvl `report` feature → reqwest 0.13 rustls)
+  pulls `aws-lc-rs` (C build). Accepted for the CLI; replacing it with our
+  hyper+ring stack via dcap-qvl's `HttpClient` trait is possible later.
+
+### D-028 RTMR3 rules (implements D-010)
+Every RTMR3 entry: `event_type == 0x08000001`, name in the known dstack boot
+set (D/dstack/dstack-util/src/system_setup.rs), digest **recomputed** (V1
+formula) and must equal the log's `digest` field, then replayed; result must
+equal the quoted RTMR3. Exactly one `compose-hash` (32 bytes), `app-id`,
+`key-provider`, `boot-mr-done`, with `compose-hash` before `boot-mr-done`.
+Event-log V2 is refused (not yet implemented). Unknown names, including
+application events emitted later via the guest agent, are refused: the
+published compose emits none. Optional policy pins: `app_id`,
+`key_provider` (exact payload).
+
+The compose check is two-sided: measured `compose-hash` == policy, **and**
+SHA-256(served `app_compose`) == measured; the second catches a server that
+runs the published compose but serves a different document for the image
+check.
+
+### D-029 SEV-SNP verification (verifier side, stretch platform)
+* `sev` 9.0.0 (`crypto_nossl`): report parse (exact length), ARK self-sig,
+  ARK→ASK→VCEK, VCEK→report, built-in Milan/Genoa/Turin ARK+ASK.
+* **Finding:** `sev` does not bind the VCEK to the report. We check the VCEK
+  TCB extensions `1.3.6.1.4.1.3704.1.3.{1,2,3,8}` equal `reported_tcb` and
+  `hwID` (`…1.4`) equals `chip_id` (AMD spec 57230), plus validity periods
+  of ARK, ASK and VCEK. Confirmed on the real Milan fixture.
+* Guest policy: debug and migration-agent bits must be 0, VMPL 0.
+* Gaps: no CRL/revocation check; KDS fetch tries Milan then Genoa, Turin
+  unsupported; live KDS fetch untested (no SNP host). Binding the compose
+  document to the SNP launch measurement is not designed yet, so the SNP
+  path **always FAILs** the event-log/compose checks today, by design.
+
+### D-030 Dependency advisories accepted with justification
+`RUSTSEC-2023-0071` (rsa 0.9, Marvin) and `RUSTSEC-2026-0387` (crypto-bigint
+0.5 timing) both arrive only via `sev`, used solely to verify public
+signatures over public data; there is no secret for a timing channel to
+leak. Ignored in `deny.toml` and `.cargo/audit.toml` with that reason;
+re-evaluate when `sev` updates. `option-ext` (MPL-2.0, via sev→dirs) allowed
+as a single-crate licence exception.

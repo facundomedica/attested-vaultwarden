@@ -77,8 +77,28 @@ pub struct TdxPolicy {
     /// document, hex).
     pub compose_hash: String,
     /// TCB statuses accepted from quote verification. Default: `UpToDate`.
+    /// Names as in Intel's TCB info (`UpToDate`, `SWHardeningNeeded`, ...).
     #[serde(default = "default_tcb")]
     pub accepted_tcb_status: Vec<String>,
+    /// Accept platforms whose PCK certificate says SMT is enabled.
+    /// Default false (dcap-qvl's strict default).
+    #[serde(default)]
+    pub allow_smt: bool,
+    /// Accept PCK `dynamicPlatform = true` (CPU packages can be added or
+    /// replaced). Default false.
+    #[serde(default)]
+    pub allow_dynamic_platform: bool,
+    /// Accept PCK `cachedKeys = true` (platform root keys cached by Intel's
+    /// registration service). Default false.
+    #[serde(default)]
+    pub allow_cached_keys: bool,
+    /// If set, the RTMR3 `app-id` event payload (hex) must equal this.
+    #[serde(default)]
+    pub app_id: Option<String>,
+    /// If set, the RTMR3 `key-provider` event payload (UTF-8 JSON as emitted
+    /// by dstack, e.g. `{"name":"kms","id":"..."}`) must equal this exactly.
+    #[serde(default)]
+    pub key_provider: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -182,6 +202,9 @@ impl Policy {
                 check_hex("tdx.compose_hash", &t.compose_hash, 32)?;
                 if t.accepted_tcb_status.is_empty() {
                     return Err(invalid("tdx.accepted_tcb_status", "must not be empty"));
+                }
+                if let Some(a) = &t.app_id {
+                    check_hex("tdx.app_id", a, 20)?;
                 }
             }
             Platform::SevSnp => {
