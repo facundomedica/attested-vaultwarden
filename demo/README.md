@@ -12,3 +12,7 @@
 Recorded live outputs (2026-11-26, Phala Cloud): `live/smoke.expected.txt`,
 `live/verify.expected.txt` (release 2026.11.0), `live/verify-2026.11.1.expected.txt`,
 `relay/relay-live.expected.txt`, `tamper/tamper.expected.txt`.
+They are verbatim; the relay transcript was recorded by an earlier verifier
+build whose measurements line read "match the published OS image" before
+that had been reproduced (the current verifier says "equal the values
+pinned by release …"; reproduction is in `policy/*.reproduce.txt`).

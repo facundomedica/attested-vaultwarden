@@ -5,8 +5,10 @@
 #
 #   attest-sidecar/reproducible-build.sh [--check] [commit]   (default HEAD)
 #
-# Anyone can run this on a release tag and compare the printed digest with
-# the `attest` image digest pinned in the release's compose / policy.
+# Anyone can run this on the commit named in a release policy's header and
+# compare the printed digest with the `attest` image digest pinned there.
+# (Run it on that commit, not on the release tag: SOURCE_DATE_EPOCH is the
+# commit time and later sidecar changes alter the digest.)
 set -euo pipefail
 check=0
 if [ "${1:-}" = "--check" ]; then check=1; shift; fi

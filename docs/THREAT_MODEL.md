@@ -11,7 +11,7 @@ the hardware vendor's attestation root and the TEE itself are not broken**:
 
 | # | Claim | Established by |
 |---|-------|----------------|
-| C1 | The responder is a genuine Intel TDX (or AMD SEV-SNP) guest, debug off, TCB acceptable to the policy. | Quote/report signature chain to the Intel/AMD root, collateral validity, TCB status and PCK platform flags (SMT, dynamic platform, cached keys) as the policy allows, debug attribute. SNP: VCEK bound to the report's TCB and chip; **no revocation (CRL) check yet**. |
+| C1 | The responder is a genuine Intel TDX guest (AMD SEV-SNP: report verification only, no deployment path yet), debug off, TCB acceptable to the policy. | Quote/report signature chain to the Intel/AMD root, collateral validity, TCB status and PCK platform flags (SMT, dynamic platform, cached keys) as the policy allows, debug attribute. SNP: VCEK bound to the report's TCB and chip; **no revocation (CRL) check yet**. |
 | C2 | The guest booted the published firmware and OS image. | MRTD + RTMR0-2 (TDX) or launch measurement (SNP) equal the policy. |
 | C3 | The guest runs the published compose document, and every container image in it is pinned by digest and allowlisted. | RTMR3 replay reproduces the quoted RTMR3 and its `compose-hash` event equals the policy; images parsed from that measured document. |
 | C4 | The TLS private key behind the certificate the verifier just validated is held by that guest. | `report_data = SHA-512(tag ‖ nonce ‖ SHA-256(SPKI))` is signed by the TEE; the SPKI is taken from the verifier's own TLS handshake. |
@@ -24,7 +24,8 @@ What PASS does **not** claim:
   same guest (see R1);
 * anything about the disk state being the latest (see R6);
 * anything when the platform is `mock`. Mock evidence proves nothing and the
-  verifier never reports PASS for it.
+  verifier never reports a plain PASS for it (exit 2, "PASS (INSECURE MOCK,
+  proves nothing)").
 
 C4 holds only if the TLS private key is generated inside the guest and never
 leaves it. The dstack gateway terminates TLS outside the
@@ -51,7 +52,7 @@ gateway's certificate, not ours, is what the verifier sees).
 | Adversary | Capabilities assumed | Mitigation | Residual |
 |-----------|----------------------|------------|----------|
 | **A1 Cloud / VPS operator, hypervisor** | Full control of host software, scheduling, device emulation, network, storage. | TDX/SNP memory confidentiality and integrity; dstack encrypted disk and network; attested boot chain. | Physical attacks (R4); rollback of disk (R6); denial of service. |
-| **A2 Holder of disk, snapshots or backups** | Reads and replays any persistent storage. | Data disk LUKS-encrypted with a key the KMS releases only to the measured app; the verifier requires the RTMR3 `storage-encrypted` event to be `1` (dstack 0.6.5+). Backups taken *inside* the guest must be encrypted to a key the operator lacks; host-level snapshots are ciphertext. | Rollback (R6). Any backup tooling added later is in the TCB. |
+| **A2 Holder of disk, snapshots or backups** | Reads and replays any persistent storage. | Data disk LUKS-encrypted with a key the KMS releases only to the measured app; the verifier fails if the RTMR3 `storage-encrypted` event is `0`, and reports "encryption not reported" if the OS image predates the event (dstack < 0.6.5); a policy cannot yet require the event. Backups taken *inside* the guest must be encrypted to a key the operator lacks; host-level snapshots are ciphertext. | Rollback (R6). Any backup tooling added later is in the TCB. |
 | **A3 Network attacker** | Intercepts, modifies, replays traffic between users and the service and between components. | TLS terminated inside the guest; WebPKI validation in the verifier. | Mis-issued certificates (R2). |
 | **A4 Service operator (us)** | Chooses what to deploy, holds the deployment credentials, injects secrets, controls DNS and the ACME account, can redeploy at will. | Measurements + compose hash + image allowlist against a public, signed release policy; TLS key generated in-guest; no operator access path in the published config (no SSH, no admin panel, see §5). | DNS and certificate control (R1, R2); unmeasured inputs (§5); publishing a malicious release openly (R3). |
 | **A5 Relay attacker** | Owns a genuine TEE running the published software and forwards its attestation while serving users from a different, non-attested server. | The attested `report_data` commits to the SPKI of the certificate the verifier itself received in the same TLS connection; a relay serving a different key fails C4. | A relay that also holds the in-guest TLS key is impossible unless the key leaks (R4). |

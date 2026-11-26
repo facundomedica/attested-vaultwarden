@@ -2,7 +2,8 @@
 
 > **Status: research prototype.** It has run live on Phala Cloud (Intel
 > TDX) for two releases and verified end to end, with relay and tamper
-> demos; there is no permanent deployment.
+> demos; there is no permanent deployment (the demo VM is stopped, so
+> `vault.facundo.dev` is usually offline).
 > Nothing here is production-ready and nothing here is "secure for your
 > passwords". The [threat model](docs/THREAT_MODEL.md) says exactly what is
 > and is not protected.
@@ -63,7 +64,7 @@ collateral, replays the RTMR3 event log, and checks the measured compose
 hash, the config pins and the image allowlist against a release policy
 (`policy/<release>.toml`). Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-## Verify in 60 seconds
+## Verify it yourself
 
 ```bash
 cargo run --release -p attested-vw-verify -- \
@@ -111,14 +112,22 @@ Step-by-step for non-experts: [docs/VERIFY.md](docs/VERIFY.md).
 * **OS measurements depend on the VM shape.** The MRTD in dstack's release
   notes does not match a Phala VM (different QEMU page-add behaviour), so
   each release's MRTD/RTMR0-2 are recomputed with `dstack-mr` from the
-  published image for the exact VM shape (`policy/measure/`). For the first
-  live release all four reproduced exactly
-  ([transcript](policy/2026.11.0-phala-dev.reproduce.txt)).
+  published image for the exact VM shape (`policy/measure/`). For both
+  live releases all four reproduced exactly
+  ([2026.11.0](policy/2026.11.0-phala-dev.reproduce.txt),
+  [2026.11.1](policy/2026.11.1-phala-dev.reproduce.txt)).
 * **Phala's KMS is trusted** to release the disk key only to this app; the
   data disk has no rollback protection.
 * **The sidecar image is private** on GHCR in the current deployment; a
-  verifier can rebuild it reproducibly from source and compare digests
-  (`attest-sidecar/reproducible-build.sh`), but cannot pull it.
+  verifier can rebuild it reproducibly from source, at the commit named in
+  the policy header (not the release tag), and compare digests
+  (`attest-sidecar/reproducible-build.sh <commit>`), but cannot pull it.
+* **SEV-SNP is verifier-only.** The verifier checks SNP reports (signature
+  chain, TCB, guest policy), but there is no SNP deployment, no SNP
+  sidecar provider, and an SNP target always FAILs the compose binding
+  check, which is not implemented.
+* **Development releases.** Both published policies accept the PCK flags
+  SMT, dynamic platform and cached keys, and pin no `app_id`.
 * **Physical attacks** on TDX memory (TEE.fail, DDRop and similar
   interposers) are out of scope, and they can forge quotes.
 * The published code itself can be wrong. Attestation proves *which* code
@@ -129,7 +138,7 @@ Step-by-step for non-experts: [docs/VERIFY.md](docs/VERIFY.md).
 | Path | What |
 |------|------|
 | `attest-sidecar/` | Small Rust service serving `/.well-known/tee-attestation`; reproducible image build and publish scripts |
-| `verifier/` | `attested-vw-verify` CLI and library (dcap-qvl for TDX, VirTEE `sev` for SEV-SNP) |
+| `verifier/` | `attested-vw-verify` CLI and library (dcap-qvl for TDX; VirTEE `sev` for SEV-SNP report checks, no SNP deployment yet) |
 | `common/` | `report_data` construction, attestation schema, policy format, compose checks |
 | `deploy/local/` | INSECURE mock stack + e2e test (no TEE needed) |
 | `deploy/dstack/` | dstack compose template, `render.sh`, simulator test |
@@ -144,7 +153,7 @@ deploy/local/e2e.sh
 ```
 
 runs the whole stack on an INSECURE mock platform: the verifier reports the
-mock (exit 2, never PASS), refuses it without `--allow-insecure-mock`, and
+mock (exit 2, printed as "PASS (INSECURE MOCK, proves nothing)", never a plain PASS), refuses it without `--allow-insecure-mock`, and
 fails against a relay and against a wrong compose hash.
 
 ## Deploying

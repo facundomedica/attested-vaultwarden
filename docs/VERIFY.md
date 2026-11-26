@@ -22,7 +22,8 @@ Build it from this repository yourself, at a release tag:
 ```bash
 git clone <this repository> attested-vaultwarden
 cd attested-vaultwarden
-git checkout <release tag>
+git checkout <release tag>        # e.g. release/2026.11.1-phala-dev
+git tag -v <release tag>          # signed by the maintainer
 cargo build --release -p attested-vw-verify
 ```
 
@@ -71,15 +72,16 @@ You get a list of checks, each ✓ or ✗ with a reason, and a final
 | report_data matches | The signed proof contains your random challenge and your connection's key. |
 | Firmware / OS measurements | The virtual machine booted the firmware and OS the release pins. |
 | Runtime event log | The deployment details the OS recorded at boot are consistent with the signed proof, the disk is encrypted, and the key service is the expected one. |
-| Compose hash | The server runs exactly the deployment document in the release. |
+| Compose hash | The server runs exactly the deployment document in the release (persistent data and unmeasured secret values are not part of it). |
 | Measured config is self-contained | Nothing outside that document (scripts, injected settings) can change what runs, except what the release explicitly pins. |
-| Images pinned and allowlisted | Every container is the exact published image. |
+| Images pinned and allowlisted | Every container image is pinned by digest and is one the release lists. (Whether that image was built from the published source is a separate check: rebuild it, see the policy header.) |
 
 ## What PASS means, and what it does not
 
 PASS means, at the moment you ran it: your HTTPS connection to that domain
-ends inside a genuine Intel TDX virtual machine running exactly the release
-you checked.
+ends inside a genuine Intel TDX virtual machine whose firmware, OS,
+deployment document and container image digests are the ones the release
+pins. It says nothing about the data stored on that server.
 
 PASS does **not** mean:
 

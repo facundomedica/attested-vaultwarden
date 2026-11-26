@@ -500,9 +500,9 @@ Uses a dedicated `docker-container` buildx builder with BuildKit pinned
 cannot export OCI archives. **Result 2026-11-26:** two clean arm64 builds of
 commit `8c8ffae` gave the same digest
 `sha256:495d22d097c0d5b88def4f8aa2a6a811021cba3616a046eee9ea5993c64dd545`.
-amd64 not yet checked (CI job `reproducible-sidecar`).
+amd64: see the addendum below (checked later the same day).
 
-### D-036 Host choice for the first live run. **OPEN**
+### D-036 Host choice for the first live run. **Resolved: Phala Cloud** (below)
 Research 2026-11-26 (sources in SELF_HOSTING §1): rentable bare-metal TDX
 starts around €560-630/month plus a setup fee of about one month (OVHcloud
 Advance-5 / Scale-i1 2026, Hetzner EX131), and no provider documents TDX
@@ -638,9 +638,9 @@ CVM `0b862054-77c4-436f-bb58-6a1d77f68dbe`, app ID
    demo → FAIL on the TLS key binding (both attempts). Outputs in
    `demo/live/*.expected.txt`, `demo/relay/relay-live.expected.txt`.
 
-Caveat recorded in the policy header: MRTD/RTMR0-2 were taken from the live
-quote, not reproduced with `dstack-mr`, so this release does not support
-claim C2. Logs are off on this deployment; future dev deployments enable
+Caveat recorded at the time: MRTD/RTMR0-2 were taken from the live quote,
+not reproduced with `dstack-mr`, so the release did not yet support claim
+C2. **Superseded by D-045**: all four were reproduced later that day. Logs are off on this deployment; future dev deployments enable
 them (maintainer's preference).
 
 ### D-044 Teardown (2026-11-26)
@@ -718,5 +718,9 @@ maintainer's read-only GHCR token in the gitignored `registry.env`.
   An operator change to one Vaultwarden setting is thus visible to anyone
   running the verifier, even though the TLS key, the hardware and the OS
   are unchanged.
-* The TXT record was edited by the assistant through the maintainer's
-  signed-in Cloudflare dashboard, at the maintainer's request.
+* **Paused, not deleted** (2026-11-26, maintainer asked to "kill the VM"):
+  `phala cvms stop 73eb5a7e…` → status `stopped`. Compute billing stops;
+  the 20 GB disk keeps being billed (≈ $2/month), and the app ID, data and
+  domain binding stay, so `phala cvms start 73eb5a7e-b94b-4cdb-8a71-e10e2bebaf6c`
+  brings release 2026.11.1-phala-dev back with no DNS change.
+  `phala cvms delete` would remove all of it (D-044).

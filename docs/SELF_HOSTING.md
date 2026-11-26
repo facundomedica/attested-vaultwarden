@@ -7,7 +7,7 @@
 This deploys one confidential VM (CVM) on a TDX host you control, running
 Vaultwarden + Caddy + the attestation sidecar, with TLS terminating inside
 the CVM. The Phala Cloud variant differs only in how the CVM is created and
-routed (D-020); it gets its own section later.
+routed (D-020); see [PHALA.md](PHALA.md).
 
 ## 0. What you trust and what you don't
 
@@ -74,7 +74,11 @@ setup fee.
      -c 2 -m 4G "dstack-<version>/metadata.json"
    ```
 
-3. The release notes publish the MRTD; it must match.
+3. Do **not** rely on the MRTD in the release notes: it depends on the
+   QEMU version and differs on other setups (D-045). `policy/measure/measure-tdx.sh`
+   wraps steps 1-2 (checks the tarball and image hashes, runs `dstack-mr`
+   offline, compares with a policy); for Phala's `tdx.small` RTMR0 also
+   needed `--hotplug-off false`.
 
 These values go into `policy/<release>.toml` (`[tdx] mrtd, rtmr0-2`). They
 come from the published image, never from the running server.
@@ -100,7 +104,8 @@ attest-sidecar/reproducible-build.sh --check <release-commit>
 
 prints the image digest; two clean builds must agree. Publish the image to a
 registry the CVM can pull from (needs the maintainer's OK), and record the
-digest. Anyone can re-run the script on the release tag and compare.
+digest, and the commit it was built from, in the policy header. Anyone can
+re-run the script on that commit and compare.
 
 ## 5. Render the deployment
 

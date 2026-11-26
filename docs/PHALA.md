@@ -3,7 +3,8 @@
 > Status: **executed twice on 2026-11-26** (releases `2026.11.0-phala-dev`
 > and `2026.11.1-phala-dev`, see [DECISIONS.md](DECISIONS.md) D-043, D-046).
 > Research prototype: do not store real passwords. Phala facts checked
-> 2026-11-26 (Phala docs, CLI v1.2.8 source, dstack `next`); D-037–D-041.
+> 2026-11-26 (Phala docs, CLI v1.2.9 source; v1.2.8 used, see below; dstack
+> `next`); D-037–D-041. The deployed OS image is dstack 0.6.5.
 > Steps marked **(you)** need your Phala account, money or DNS.
 
 Cost: `tdx.small` (1 vCPU, 2 GB) ≈ $0.06/h, `tdx.medium` ≈ $0.12/h, billed
@@ -32,7 +33,9 @@ attest-sidecar/publish.sh ghcr.io/<github-user>/attest-sidecar
 Prints `pin as: ghcr.io/<github-user>/attest-sidecar@sha256:…`. Then make the
 package **public** (GitHub → Packages → attest-sidecar → Package settings →
 Change visibility). Anyone can confirm the digest with
-`attest-sidecar/reproducible-build.sh <commit>`.
+`attest-sidecar/reproducible-build.sh <commit>`; write that commit into the
+release policy's header, because the release tag may contain later sidecar
+changes.
 
 ## 1b. Private image variant (what this deployment uses)
 
@@ -47,8 +50,8 @@ CVM):
 3. Render with `phala-private`: this also writes `pre-launch.sh`, a two-line
    measured script that runs `docker login ghcr.io --username <user>` with
    the token from encrypted env, and prints its SHA-256.
-4. Deploy with `--pre-launch-script deploy/dstack/.generated/pre-launch.sh
-   -e deploy/dstack/.generated/registry.env --no-dev-os` instead of
+4. Deploy (from `deploy/dstack/.generated/`, as in step 3) with
+   `--pre-launch-script pre-launch.sh -e registry.env --no-dev-os` instead of
    `--no-pre-launch-script`. **`--no-dev-os` is required**: with a
    pre-launch script, CLI 1.2.8 otherwise reads `~/.ssh/id_*.pub` and adds
    it as encrypted env `DSTACK_AUTHORIZED_KEYS` (and the verifier's
@@ -64,7 +67,8 @@ What this costs in assurance, and why it is acceptable here:
 * `$` interpolation in the compose stays forbidden, because the decrypted
   env is also in `docker compose`'s environment.
 * Verifiers cannot pull the image to inspect it; they can still rebuild the
-  commit with `attest-sidecar/reproducible-build.sh` and compare digests.
+  commit named in the policy header with `attest-sidecar/reproducible-build.sh`
+  and compare digests.
 * A classic `read:packages` token can read *all* of the account's private
   packages, not just this one.
 

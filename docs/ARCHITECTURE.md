@@ -117,7 +117,7 @@ env values are not measured, see §5):
 | `ICON_SERVICE` | `internal` | an external service redirects the client's browser to a third party |
 | `PUSH_ENABLED` | `false` | push goes through Bitwarden's relay (sees device tokens and timing); trade-off: mobile clients sync on open/poll instead |
 | `SSO_ENABLED` | `false` | IdP would be outside the TEE |
-| `ORG_CREATION_USERS` | `none` or an explicit list | *open* |
+| `ORG_CREATION_USERS` | `none` | nobody creates organisations; an explicit list would be a new release |
 | `PASSWORD_HINTS_ALLOWED` / `SHOW_PASSWORD_HINT` | `false` / `false` | hints are plaintext to the server |
 | `LOG_LEVEL` | `warn` | limit request logging (IPs, icon domains) that may be exported by the platform |
 | `IP_HEADER` | `X-Forwarded-For` from Caddy, trusted proxies `local` | correct client IPs for rate limiting |
@@ -144,7 +144,7 @@ Platform behind `QuoteProvider`:
 
 * `Dstack`: guest agent v0 `GetQuote` (`report_data` passed raw, ≤ 64 bytes,
   no hashing by the agent) or v1 `Attest` (MessagePack). See DECISIONS D-004.
-* `ConfigfsTsm`: SEV-SNP via `/sys/kernel/config/tsm/report` (stretch).
+* `ConfigfsTsm`: SEV-SNP via `/sys/kernel/config/tsm/report` (stretch, **not implemented**).
 * `Mock`: INSECURE, local only.
 
 ### 4.4 `verifier`
