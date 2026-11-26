@@ -642,3 +642,13 @@ Caveat recorded in the policy header: MRTD/RTMR0-2 were taken from the live
 quote, not reproduced with `dstack-mr`, so this release does not support
 claim C2. Logs are off on this deployment; future dev deployments enable
 them (maintainer's preference).
+
+### D-044 Teardown (2026-11-26)
+After the live run the maintainer asked to stop the CVM and delete its disk:
+`phala cvms stop` then `phala cvms delete --yes` (deleting the CVM removes
+its data disk). Afterwards `phala cvms list` and `phala domains ls` are
+empty, so the domain binding went with the app. Left in place: the
+Cloudflare CNAME/TXT records for `vault.facundo.dev` (they point at the
+gateway and a now-unbound app ID; a new deployment gets a new app ID, so the
+TXT value must be updated anyway), the private GHCR image, and the
+maintainer's read-only GHCR token in the gitignored `registry.env`.
