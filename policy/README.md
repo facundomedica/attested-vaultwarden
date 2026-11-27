@@ -29,7 +29,9 @@ not running published software.
 | `2026.11.1-phala-dev` | same | on | same values as 2026.11.0 (same image and VM shape) | PASS; tamper demo FAIL then PASS (D-046) |
 | `2026.11.2-phala-dev` | same | on | same values, reproduced again ([transcript](2026.11.2-phala-dev.reproduce.txt)) | PASS; first with `app_id` pinned and encrypted disk required; wrong `app_id` → FAIL (D-048) |
 
-Each release also has `<release>.app-compose.json`, the exact measured
+| `2026.11.0-gcp-cs-dev` | Google Cloud Confidential Space, TDX, `c3-standard-4`, image 261100 | on | none: Google's token names the image version, nothing is reproduced ([doc](../docs/GCP_CONFIDENTIAL_SPACE.md)) | PASS; wrong digest, relay and debug image → FAIL; VM deleted after the test |
+
+Each dstack release also has `<release>.app-compose.json`, the exact measured
 document, for review. All are development releases: private sidecar image,
 PCK flags SMT/dynamic platform/cached keys accepted.
 

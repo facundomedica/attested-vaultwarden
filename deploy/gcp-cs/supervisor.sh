@@ -1,8 +1,9 @@
 #!/bin/bash
 # PID 1 of the Confidential Space workload container: starts Vaultwarden,
 # Caddy and the attestation sidecar, and exits as soon as ANY of them exits.
-# The launcher (tee-restart-policy=Always) then restarts the container, so
-# the three never run as a partial set.
+# The launcher (tee-restart-policy=Always) then reboots the whole VM about
+# two minutes later (observed live; it does not restart the container in
+# place), so the three never run as a partial set.
 #
 # Deliberately tiny and free of logic: it is part of what users trust.
 # __DOMAIN__ and __ACME_HOST__ are filled in at image build time; nothing is

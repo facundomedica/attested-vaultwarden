@@ -1,0 +1,29 @@
+# Release policy for the first live Google Cloud Confidential Space test
+# (2026-11-27, https://vault.gcp.facundo.dev, project attested-vw-test-6976,
+# europe-west4-a, c3-standard-4, Intel TDX, production `confidential-space`
+# image family: confidential-space-261100).
+#
+# Workload image: deploy/gcp-cs/build.sh vault.gcp.facundo.dev at commit
+# 9ba7038 with LOG_REDIRECT=always (development: container logs reach Cloud
+# Logging and the serial console) and the Let's Encrypt production directory.
+# One build on one machine; reproducibility of the digest was not checked.
+#
+# Development release, research prototype: do not store real passwords.
+# What a PASS means here (Google signs the statement; the verifier sees no
+# hardware quote) is in docs/GCP_CONFIDENTIAL_SPACE.md, "Trust".
+# The VM was deleted after the test; the vault lived only in it.
+schema = 1
+release = "2026.11.0-gcp-cs-dev"
+date = "2026-11-27"
+platform = "gcp-cs"
+
+[gcp_cs]
+hwmodel = ["GCP_INTEL_TDX"]
+support_attribute = "STABLE"
+restart_policy = "Always"
+min_swversion = 261100
+project_id = "attested-vw-test-6976"
+
+[[images]]
+service = "workload"
+image = "europe-west4-docker.pkg.dev/attested-vw-test-6976/attested-vw/attested-vw-gcp-cs@sha256:9ac03456ee9998ee9d9d30c39e1d987b2b9d0a1da31b1c9092aadf354dd90517"

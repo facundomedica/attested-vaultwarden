@@ -13,8 +13,9 @@
 //! eat_nonce   = [ hex(report_data[0..32]), hex(report_data[32..64]) ]
 //! ```
 //!
-//! Two nonces because Google accepts at most six nonces of 10 to 74 bytes
-//! each, and 128 hex characters do not fit in one. Order is significant.
+//! Two nonces because Google accepts at most six nonces of 8 to 88 bytes
+//! each (observed live; one page of its documentation says 10 to 74), and
+//! 128 hex characters do not fit in one. Order is significant.
 
 use serde::{Deserialize, Serialize};
 

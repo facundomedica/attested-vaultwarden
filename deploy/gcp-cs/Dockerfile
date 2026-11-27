@@ -1,7 +1,7 @@
 # Attested Vaultwarden workload image for Google Cloud Confidential Space.
 #
-# RESEARCH PROTOTYPE. Not exercised on a live Confidential Space VM yet; see
-# docs/GCP_CONFIDENTIAL_SPACE.md ("Status").
+# RESEARCH PROTOTYPE. Run once on a live Confidential Space VM (2026-11-27);
+# see docs/GCP_CONFIDENTIAL_SPACE.md, "Live test".
 #
 # Confidential Space runs exactly ONE container, so the three roles that are
 # three containers on dstack (unmodified Vaultwarden, Caddy terminating TLS,

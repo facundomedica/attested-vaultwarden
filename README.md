@@ -171,7 +171,7 @@ fails against a relay and against a wrong compose hash.
 
 * Phala Cloud (managed dstack, TDX): [docs/PHALA.md](docs/PHALA.md)
 * Self-hosted dstack: [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md)
-* Google Cloud Confidential Space (code and research only, never deployed; a weaker trust statement, signed by Google rather than checked against a hardware quote, and no persistent storage): [docs/GCP_CONFIDENTIAL_SPACE.md](docs/GCP_CONFIDENTIAL_SPACE.md)
+* Google Cloud Confidential Space (research prototype, run live once on 2026-11-27 and torn down; a weaker trust statement, signed by Google rather than checked against a hardware quote, and no persistent storage): [docs/GCP_CONFIDENTIAL_SPACE.md](docs/GCP_CONFIDENTIAL_SPACE.md)
 
 ## Security
 

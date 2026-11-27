@@ -1,0 +1,26 @@
+ Network avw-relay-live_default Creating 
+ Network avw-relay-live_default Created 
+ Volume avw-relay-live_relay_data Creating 
+ Volume avw-relay-live_relay_data Created 
+ Container avw-relay-live-relay-1 Creating 
+ Container avw-relay-live-relay-1 Created 
+ Container avw-relay-live-relay-1 Starting 
+ Container avw-relay-live-relay-1 Started 
+ avw-relay-live-relay-1 Copying avw-relay-live-relay-1:/data/caddy/pki/authorities/local/root.crt to <repo>/demo/relay/.relay-root.crt
+ avw-relay-live-relay-1 Copied avw-relay-live-relay-1:/data/caddy/pki/authorities/local/root.crt to <repo>/demo/relay/.relay-root.crt
+Target:  https://localhost:9443
+Policy:  release 2026.11.0-gcp-cs-dev
+Platform: gcp-cs
+  (TLS trust roots: custom CA file only (NOT WebPKI))
+  (first attempt failed on the TLS key binding; retried once on a new connection)
+  ✓ TLS connection, certificate validated: TLSv1_3 to localhost:9443, certificate valid for host; leaf SPKI SHA-256 8ed2a74adc4939d7a026e869cf3a621ba8925a1a7a0cdb7aef57253751c09504
+  ✓ Fetch attestation over same connection: same TLS connection, 4272 bytes
+  ✗ TLS key bound to attestation: attestation is for TLS key a08c741c8355cf9b6882ee44910d60d9c8607be9a33221d5c8e6f2e921863289 but this connection uses 8ed2a74adc4939d7a026e869cf3a621ba8925a1a7a0cdb7aef57253751c09504: the TLS endpoint is not the attested server (relay?) or the certificate just rotated
+  ✓ Freshness nonce: server echoed our fresh nonce
+  ✓ Hardware evidence signature, TCB, debug off: Google Cloud Attestation token: RS256 signature valid under Google key 1be6ff7287d640316ddc929e1a8b21fbca7e54e7, issuer, audience and validity window ok (no raw hardware quote is seen by this verifier)
+  ✗ report_data matches nonce + TLS key: signed report_data does not match our nonce and TLS key
+  ✓ Firmware / OS measurements: Google attests: production Confidential Space image 261100 [LATEST,STABLE,USABLE] on GCP_INTEL_TDX, secure boot on, debug off, TDX TCB UpToDate
+  ✓ Measured config is self-contained: restart policy Always, no command or environment overrides
+  ✓ Images pinned and allowlisted: workload image digest sha256:9ac03456ee9998ee9d9d30c39e1d987b2b9d0a1da31b1c9092aadf354dd90517 equals release 2026.11.0-gcp-cs-dev
+Result:  FAIL
+verifier exit 1 (expected 1: TLS key binding must fail)
