@@ -20,11 +20,14 @@ ACME_HOST="__ACME_HOST__"
 
 mkdir -p /data /caddy-data /caddy-config
 
-# --- Vaultwarden: same settings as deploy/dstack/docker-compose.template.yml
+# --- Vaultwarden: same settings as deploy/dstack/docker-compose.template.yml,
+# plus I_REALLY_WANT_VOLATILE_STORAGE: Vaultwarden refuses to start without
+# a persistent volume, and Confidential Space has none. THE VAULT IS LOST ON
+# EVERY VM RESTART (docs/GCP_CONFIDENTIAL_SPACE.md, "Storage").
 env -i PATH="$PATH" \
   DOMAIN="https://${DOMAIN}" \
   ROCKET_ADDRESS=127.0.0.1 ROCKET_PORT=8080 \
-  DATA_FOLDER=/data \
+  DATA_FOLDER=/data I_REALLY_WANT_VOLATILE_STORAGE=true \
   SIGNUPS_ALLOWED=false INVITATIONS_ALLOWED=true \
   DISABLE_ICON_DOWNLOAD=true ICON_CACHE_TTL=0 ICON_SERVICE=internal \
   PUSH_ENABLED=false SSO_ENABLED=false \
@@ -49,10 +52,13 @@ env -i PATH="$PATH" \
   ATTEST_CERT_PATH="/caddy-data/caddy/certificates/${ACME_HOST}-directory/${DOMAIN}/${DOMAIN}.crt" \
   attest-sidecar &
 
-trap 'kill 0' TERM INT
+# On TERM/INT: stop the children. The trap is cleared first, because
+# `kill 0` also signals this shell.
+trap 'trap - TERM INT; kill 0; exit 143' TERM INT
 # First child to exit takes the container down with it.
 status=0
 wait -n || status=$?
 echo "supervisor: a service exited (status ${status}); stopping the container" >&2
+trap - TERM INT
 kill 0 2>/dev/null || true
 exit 1

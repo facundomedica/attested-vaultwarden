@@ -2,6 +2,11 @@
 # part of the attested image. Same shape as the dstack deployment's.
 {
 	admin off
+	# No listener on port 80 (Caddy would otherwise open one to redirect
+	# HTTP to HTTPS). The container shares the VM's network namespace and
+	# the Vaultwarden base image declares EXPOSE 80, which makes the
+	# launcher open that port in the VM firewall: nothing must answer there.
+	auto_https disable_redirects
 }
 __DOMAIN__ {
 	# One pinned issuer, so the sidecar knows where the leaf lives.

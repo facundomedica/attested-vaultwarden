@@ -190,9 +190,9 @@ one image:
 * **Reproducibility**: `deploy/gcp-cs/build.sh` builds from `git archive` of
   one commit with the pinned BuildKit, `SOURCE_DATE_EPOCH` and
   `rewrite-timestamp=true`, and prints the OCI manifest digest; `--check`
-  builds twice. Whether two machines get the same digest has **not** been
-  established for this image (see the report accompanying this change for
-  what was run locally).
+  builds twice. The image was built locally (linux/amd64, emulated on an
+  arm64 Mac) and smoke-tested offline; whether two builds, or two machines,
+  give the same digest has **not** been established.
 * **Launch policy labels** in the image: no cmd override, no env override,
   no added capabilities, no cgroup namespace, memory monitoring `never`,
   `log_redirect=debugonly` (build with `LOG_REDIRECT=always` for a
@@ -210,6 +210,22 @@ outside the VM, and Caddy can complete **TLS-ALPN-01** itself. Vaultwarden
 (127.0.0.1:8080) and the sidecar (127.0.0.1:8081) listen on loopback only.
 **UNCONFIRMED** on a live VM.
 
+The Vaultwarden base image declares `EXPOSE 80`, and a Dockerfile cannot
+remove an inherited port, so the image config lists `80/tcp` next to
+`443/tcp` and the launcher will open both in the VM firewall. Nothing
+listens on 80: Vaultwarden is moved to loopback, and Caddy's HTTP-to-HTTPS
+redirect listener is turned off (`auto_https disable_redirects`). The VPC
+firewall rule in `deploy.sh` allows 443 only.
+
+### Local smoke test (2026-11-27, Docker, no network, no launcher)
+
+The built image was run with `--network none`: Vaultwarden answered
+`/alive` on 127.0.0.1:8080, the sidecar answered 503 "TLS certificate not
+available" (no certificate can be issued offline) and 400 for a bad nonce,
+Caddy listened on 443, each process had only the environment the supervisor
+gives it, and killing Caddy stopped the container. That exercises the
+supervisor and the wiring, nothing about Confidential Space.
+
 ### Storage: there is no verifiable persistence
 
 This is the largest functional gap against dstack.
@@ -218,7 +234,9 @@ This is the largest functional gap against dstack.
   encrypted with dm-crypt under an **ephemeral per-boot key**; `tee-mount`
   offers tmpfs only; the launcher has no persistent-disk mount. [S7][S8]
   **Vaultwarden's `/data` and Caddy's key and certificate are lost on every
-  VM restart.** TDX VMs do not live-migrate, so host maintenance restarts
+  VM restart.** (Vaultwarden itself refuses to start in a container without
+  a persistent volume; the supervisor sets `I_REALLY_WANT_VOLATILE_STORAGE`,
+  which is exactly the situation.) TDX VMs do not live-migrate, so host maintenance restarts
   the VM and wipes the vault. Whether the writable layer survives a
   *container* restart within one boot is **UNCONFIRMED**.
 * A new TLS key per boot means a new certificate per boot. Let's Encrypt
