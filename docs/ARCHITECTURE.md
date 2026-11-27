@@ -174,7 +174,7 @@ Platform behind `QuoteProvider`:
 
 * `Dstack`: guest agent v0 `GetQuote` (`report_data` passed raw, ≤ 64 bytes,
   no hashing by the agent) or v1 `Attest` (MessagePack). See DECISIONS D-004.
-* `ConfigfsTsm`: SEV-SNP via `/sys/kernel/config/tsm/report` (stretch; verified in code, **never run on hardware**, see [SNP.md](SNP.md), D-050).
+* `ConfigfsTsm`: SEV-SNP via `/sys/kernel/config/tsm/report` (stretch; verified in code, **never run on hardware**, see [SNP.md](SNP.md), D-050; `ATTEST_SNP_BINDING=measured-cmdline` for the Servury image, [SNP_SERVURY.md](SNP_SERVURY.md), D-055).
 * `GcpCs`: Google Cloud Confidential Space launcher socket; the evidence is
   a Google-signed attestation token whose `eat_nonce` carries `report_data`
   (implemented, **never run on GCP**; trusts Google's attestation service;

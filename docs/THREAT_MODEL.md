@@ -11,7 +11,7 @@ the hardware vendor's attestation root and the TEE itself are not broken**:
 
 | # | Claim | Established by |
 |---|-------|----------------|
-| C1 | The responder is a genuine Intel TDX guest (AMD SEV-SNP: verified in code, never run on hardware, [SNP.md](SNP.md)), debug off, TCB acceptable to the policy. | Quote/report signature chain to the Intel/AMD root, collateral validity, TCB status and PCK platform flags (SMT, dynamic platform, cached keys) as the policy allows, debug attribute. SNP: VCEK bound to the report's TCB and chip; **no revocation (CRL) check yet**. |
+| C1 | The responder is a genuine Intel TDX guest (AMD SEV-SNP: verified in code, never run on hardware, [SNP.md](SNP.md), [SNP_SERVURY.md](SNP_SERVURY.md)), debug off, TCB acceptable to the policy. | Quote/report signature chain to the Intel/AMD root, collateral validity, TCB status and PCK platform flags (SMT, dynamic platform, cached keys) as the policy allows, debug attribute. SNP: VCEK bound to the report's TCB and chip; **no revocation (CRL) check yet**. |
 | C2 | The guest booted the published firmware and OS image. | MRTD + RTMR0-2 (TDX) or launch measurement (SNP) equal the policy. |
 | C3 | The guest runs the published compose document, and every container image in it is pinned by digest and allowlisted. | RTMR3 replay reproduces the quoted RTMR3 and its `compose-hash` event equals the policy; images parsed from that measured document. The verifier also refuses a list of known-dangerous compose settings (privileged, host namespaces and paths, command overrides, ...); that list is a safety net, not a proof that a compose is safe: what is trusted is the reviewed document the compose hash pins. |
 | C4 | The TLS private key behind the certificate the verifier just validated is held by that guest (and, see the precondition below, by nobody who had access to its persistent disk). | `report_data = SHA-512(tag ‖ nonce ‖ SHA-256(SPKI))` is signed by the TEE; the SPKI is taken from the verifier's own TLS handshake. |
@@ -23,6 +23,20 @@ quote: it trusts Google's attestation service, which is also the host, so a
 PASS there holds against the workload operator and outsiders but **not**
 against the infrastructure provider (A1), and there is no persistence
 ([GCP_CONFIDENTIAL_SPACE.md](GCP_CONFIDENTIAL_SPACE.md) §5, D-051).
+
+On SEV-SNP (verified in code, never run on hardware) there is no RTMR3:
+C3 rests on the launch measurement alone. Either the measured image
+enforces the `HOST_DATA` the host set (`host-data`; no such image exists),
+or the compose hash is on the measured kernel command line
+(`measured-cmdline`; image built for Servury Blackbox, never booted on
+SNP). In the second mode the report shows no compose hash: that the pinned
+measurement belongs to an image carrying the pinned document is stated by
+the policy and checked by rebuilding the image, not by the verifier. On a
+rented SNP host the firmware is the provider's build, the provider chooses
+the vCPU shape and the guest policy (Servury's allows SMT, which the
+policy must accept with `allow_smt = true`), and the image keeps all state
+in memory ([SNP.md](SNP.md) §3.5, [SNP_SERVURY.md](SNP_SERVURY.md) §7,
+D-055).
 
 What PASS does **not** claim:
 

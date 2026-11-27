@@ -70,10 +70,9 @@ RUN set -eu; mkdir -p /closure/etc/ssl/certs /closure/usr/local/bin; \
 
 # --- assembly ---------------------------------------------------------------
 FROM docker.io/library/debian:trixie-slim@sha256:8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0 AS assemble
-ARG SOURCE_DATE_EPOCH
 # The timestamp the base image itself was built from.
 ARG DEBIAN_SNAPSHOT=20261123T000000Z
-ENV SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH} LC_ALL=C.UTF-8 TZ=UTC DEBIAN_FRONTEND=noninteractive
+ENV LC_ALL=C.UTF-8 TZ=UTC DEBIAN_FRONTEND=noninteractive
 RUN set -eu; \
     sed -i -e "s|URIs: http://deb.debian.org/debian-security|URIs: http://snapshot.debian.org/archive/debian-security/${DEBIAN_SNAPSHOT}|" \
            -e "s|URIs: http://deb.debian.org/debian|URIs: http://snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT}|" \
@@ -126,6 +125,8 @@ ARG PUBLIC_LOGS=false
 # different command line, hence a different measurement: never in a policy.
 ARG SELFTEST=0
 ARG SOURCE_COMMIT=unknown
+# File times inside the initrd.
+ARG SOURCE_DATE_EPOCH
 RUN set -eu; \
     echo "${DOMAIN}" | grep -Eq '^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$' || { echo "build with --build-arg DOMAIN=<fqdn>" >&2; exit 1; }; \
     echo "${ACME_HOST}" | grep -Eq '^[a-z0-9.-]+$'; \

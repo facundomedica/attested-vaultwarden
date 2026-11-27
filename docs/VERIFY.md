@@ -137,7 +137,8 @@ each run rather than carrying a copy:
 * **AMD SEV-SNP**: the VCEK certificate from the server's certificate
   table, or from AMD's key server if the server sent none. Either way it
   must be signed by the AMD roots built into the verifier and match the
-  report. **No SNP deployment exists**; this path has only seen synthetic
+  report. **No SNP deployment exists** (an image for Servury Blackbox is built
+  but was never booted on SNP, [SNP_SERVURY.md](SNP_SERVURY.md)); this path has only seen synthetic
   reports and one public AMD-signed sample ([SNP.md](SNP.md)).
 
 If the material cannot be fetched (service down, rate limit, request

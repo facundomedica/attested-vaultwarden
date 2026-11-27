@@ -2,18 +2,28 @@
 
 Status on 2026-11-27: **designed and implemented in the verifier and the
 sidecar, tested only with synthetic reports and a fake configfs directory.
-Never run on SNP hardware.** No guest image exists yet. This is a research
-prototype; nothing here is ready for real secrets.
+Never run on SNP hardware.** A guest image exists for one target only
+(Servury Blackbox, second binding mode, [SNP_SERVURY.md](SNP_SERVURY.md));
+it was boot-tested in QEMU without SNP. This is a research prototype;
+nothing here is ready for real secrets.
+
+Two ways of binding the compose document are implemented:
+
+| `compose_binding` | Where the hash is | For | Guest image |
+|-------------------|-------------------|-----|-------------|
+| `host-data` | `HOST_DATA`, set by the host at launch, enforced by the measured image | Hosts you control (self-hosted QEMU/KVM), §3 | **Does not exist** (§3.3) |
+| `measured-cmdline` | The measured kernel command line, so `MEASUREMENT` itself covers it | Hosts that let you supply kernel, initrd and command line but not `HOST_DATA` (Servury Blackbox), §3.5 | `deploy/sev-snp/`, reproducible, never booted on SNP |
 
 What is and is not established:
 
 | Piece | State |
 |-------|-------|
 | Report signature chain, VCEK bound to chip and TCB, guest policy | Tested against one real AMD-signed Milan report (upstream `sev` fixture) |
-| `HOST_DATA` binding, launch-policy checks, `[sev_snp]` policy schema | Tested with **synthetic** reports signed by a test-only chain (`verifier/testdata/sev-synthetic`). No real report with a non-zero `HOST_DATA` was available |
+| `HOST_DATA` binding, `measured-cmdline` binding, launch-policy checks, `[sev_snp]` policy schema | Tested with **synthetic** reports signed by a test-only chain (`verifier/testdata/sev-synthetic`). No real report with a non-zero `HOST_DATA` was available |
 | Sidecar `ConfigfsTsm` provider | Tested against a fake directory with a scripted "kernel". Never run on a kernel with `sev_guest` |
 | `policy/measure/measure-snp.sh` | Written from the `sev-snp-measure` README. Never run against real OVMF/kernel inputs; never compared with a real report |
-| Guest image (OVMF + kernel + initrd that enforces `HOST_DATA`) | **Does not exist.** Requirements in §3.3 |
+| Guest image that enforces `HOST_DATA` | **Does not exist.** Requirements in §3.3 |
+| Guest image for `measured-cmdline` (`deploy/sev-snp/`) | Built reproducibly (two builds, identical files); boots in QEMU **without SNP**; expected measurement computed offline, never compared with a real report ([SNP_SERVURY.md](SNP_SERVURY.md)) |
 | AMD KDS fetch | Never run for a deployment. The URL format was checked once (2026-11-27) with the public Milan sample report: KDS returned its VCEK for the URL from `snp::kds_vcek_urls` (shared by the CLI and the page), requested by the browser page (KDS sends `Access-Control-Allow-Origin: *`); the CLI's own fetch was not run. Milan and Genoa only. Turin needs the VCEK from the certificate table |
 | Browser verifier (`web/`) | Same checks as the CLI through the wasm build; VCEK from the certificate table or KDS. Tested with the synthetic chain (core tests) and the public Milan sample (signature chain only). Never against a deployment |
 | Revocation (AMD CRL) | Not checked |
@@ -51,6 +61,7 @@ that day. Prices are list prices seen that day and will drift.
 | (c1) Azure ACI confidential containers | Indirectly: `HOST_DATA` = SHA-256 of *your* CCE (Rego) policy | Microsoft's utility VM | Microsoft's UVM image and its COSE signing key | UNCONFIRMED |
 | (c2) Azure confidential VMs | No | Microsoft's paravisor (with vTPM) + UEFI | The paravisor; OS and app only via vTPM PCRs; `REPORT_DATA` is not ours | UNCONFIRMED |
 | (d) dstack on bare-metal SNP | Yes, by dstack: "MrConfigV3" incl. `compose_hash` | Firmware, kernel, initramfs, cmdline | dstack OS image, its KMS and TCB lists | Your hardware |
+| (f) Servury Blackbox (measured boot, own image) | No | Servury's OVMF (`AmdSevX64`), and your kernel + initrd + cmdline; recomputable | Servury's firmware build (published, claimed reproducible, not rebuilt here); the host picks vCPU count and model | $9.99/month for 2 vCPU / 4 GB as listed |
 | (e) Edgeless Contrast (bare metal) | Yes, by Contrast: Kata policy digest | Kernel, initrd, cmdline (ID block) | Contrast runtime image, Coordinator manifest | Your hardware; BUSL licence for production |
 
 ### (a) Self-hosted QEMU/KVM
@@ -144,6 +155,18 @@ BUSL. Constellation is archived (2026-01-22) with Contrast as successor
 ([repo][constellation]). Confidential Containers use the same idea: the
 initdata digest goes into `HOST_DATA` ([initdata, 2026-08-26][coco]).
 
+### (f) Servury Blackbox
+
+A small VPS provider whose "Blackbox" VMs are SNP guests launched by QEMU
+with `kernel-hashes=on` and a published `AmdSevX64` OVMF, and which accepts
+a customer-supplied UKI or kernel + initrd + command line
+([measured boot guide][servury-mb], read 2026-11-27). The customer cannot
+set `HOST_DATA` or an ID block, so design (a) does not fit as it is; the
+measurement, however, covers everything the customer supplies. It is the
+only offering found where a rented VM gives a recomputable `MEASUREMENT`
+over our own image for the price of a small VPS. Details, image and
+runbook: [SNP_SERVURY.md](SNP_SERVURY.md). Nothing was bought or run.
+
 **Observation.** Every stack where the guest owner controls the launch
 (dstack, Contrast, CoCo, ACI) converged on the same shape: pin
 `MEASUREMENT`, put a config digest in `HOST_DATA`, have the measured guest
@@ -183,9 +206,11 @@ of trusting Microsoft's UVM.
 2. **report_data**: `REPORT_DATA` = SHA-512(tag ‖ our nonce ‖ our TLS SPKI).
 3. **Measurements**: `MEASUREMENT` = policy `measurement`.
 4. **Launch config binding**: `HOST_DATA` is non-zero, and is trusted only
-   if check 3 passed.
+   if check 3 passed. (`measured-cmdline`: `HOST_DATA` equals the policy's
+   `host_data`, all zero if the policy has none, and check 3 passed; §3.5.)
 5. **Compose hash**: `HOST_DATA` = policy `host_data` = SHA-256(served
-   app-compose).
+   app-compose). (`measured-cmdline`: policy `compose_hash` = SHA-256(served
+   app-compose).)
 6. **Config** and **Images**: as on TDX, from the hash-checked document.
 
 There is no event-log check on SNP. Every check is fail-closed: an absent
@@ -206,7 +231,7 @@ platform = "sev-snp"
 
 [sev_snp]
 measurement = "<96 hex>"            # sev-snp-measure over OVMF+kernel+initrd+cmdline
-compose_binding = "host-data"       # required; the only mode
+compose_binding = "host-data"       # required: "host-data" or "measured-cmdline" (§3.5)
 host_data = "<64 hex>"              # SHA-256(app-compose.json)
 # allowed_vmpl = [0]                # default
 # allow_smt = false                 # default
@@ -292,6 +317,49 @@ advanced by exactly one, `auxblob` is forwarded as `evidence.aux`. No
 `/dev/sev-guest` ioctl fallback: it would need `unsafe` (forbidden in this
 workspace) or one more dependency inside the TEE.
 
+### 3.5 Second mode: the hash on the measured command line
+
+`compose_binding = "measured-cmdline"`, for hosts where the guest owner
+supplies kernel, initrd and command line but cannot set `HOST_DATA`.
+
+```toml
+[sev_snp]
+measurement = "<96 hex>"
+compose_binding = "measured-cmdline"
+compose_hash = "<64 hex>"           # SHA-256(app-compose.json); required
+# host_data = "<64 hex>"            # optional; absent = HOST_DATA must be all zero
+allow_smt = true                    # only if the host's guest policy allows SMT
+```
+
+* The image carries the document inside the measured initrd and the
+  document's SHA-256 on the measured command line
+  (`avw.compose_sha256=`); its init refuses to start anything on a
+  mismatch. `MEASUREMENT` therefore covers the document.
+* The verifier checks `MEASUREMENT` = `measurement`, SHA-256(served
+  document) = `compose_hash`, and `HOST_DATA` = `host_data` (all zero
+  without a pin), plus every launch check of §3.1. If the measurement or
+  launch-policy check fails, the binding check fails too.
+* Difference from `host-data` in what the verifier itself establishes: with
+  `host-data` the hash is a signed report field and the image only has to
+  enforce it; here the report shows no hash at all. That `measurement`
+  belongs to an image carrying `compose_hash` is a statement of the policy,
+  checkable by rebuilding the image and recomputing the measurement
+  (`deploy/sev-snp/measure.sh --policy`). A policy with a wrong pair either
+  fails (the document served by the real image hashes differently) or was
+  written for an image that lies about its document, which is a review
+  failure of that image, as in §3.3.
+* `host_data` and `compose_hash` are distinct fields on purpose: a
+  `host-data` policy with `compose_hash`, or a `measured-cmdline` policy
+  without it, is a load error.
+* One release, one VM shape, one network configuration: the command line
+  also carries the IP configuration, so each deployment has its own
+  measurement.
+
+Sidecar: `ATTEST_SNP_BINDING=measured-cmdline` compares the document with
+`/proc/cmdline` instead of `HOST_DATA`. A missing SNP report at start-up is
+then a loud warning and every request fails with 503 (this is what a boot
+without SNP hardware looks like).
+
 ## 4. Threat-model notes specific to SNP
 
 * The physical and firmware attacks listed in THREAT_MODEL.md apply. Named
@@ -311,8 +379,18 @@ workspace) or one more dependency inside the TEE.
 * `HOST_DATA` is visible to, and chosen by, the host; it is a commitment,
   not a secret.
 * No rollback protection for the data disk, as on TDX.
+* `measured-cmdline` on a rented host (Servury): the firmware is the
+  provider's build, the provider chooses vCPU count, vCPU model and guest
+  policy (all visible in the measurement or the report), and the guest
+  policy allows SMT, which the release policy has to accept explicitly
+  (`allow_smt = true`). No ID block: nothing but the verifier's comparison
+  rejects a wrong launch. [SNP_SERVURY.md](SNP_SERVURY.md) §7.
 
 ## 5. Deploying it later
+
+On Servury Blackbox (rented, `measured-cmdline`): the image and a
+step-by-step runbook exist, see [SNP_SERVURY.md](SNP_SERVURY.md). The steps
+below are for the self-hosted `host-data` design.
 
 1. Rent or own an EPYC (Milan or Genoa) server with BIOS access; enable
    SNP; host kernel 6.11 or later, QEMU 9.1 or later.
@@ -335,6 +413,7 @@ workspace) or one more dependency inside the TEE.
 
 All fetched 2026-11-27 unless a date is given.
 
+[servury-mb]: https://servury.com/docs/guides/measured-boot/
 [qom]: https://raw.githubusercontent.com/qemu/qemu/master/qapi/qom.json
 [qemu-sev]: https://www.qemu.org/docs/master/system/i386/amd-memory-encryption.html
 [amdsev]: https://github.com/AMDESE/AMDSEV

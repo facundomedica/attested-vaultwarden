@@ -134,10 +134,14 @@ Step-by-step for non-experts: [docs/VERIFY.md](docs/VERIFY.md).
   the policy header (not the release tag), and compare digests
   (`attest-sidecar/reproducible-build.sh <commit>`), but cannot pull it.
 * **SEV-SNP is verified in code, never run on hardware.** The verifier binds the compose
-  document through `HOST_DATA` and a pinned launch measurement, and the
-  sidecar has a configfs-tsm provider, but both are tested only with
-  synthetic reports and a fake configfs directory; there is no SNP guest
-  image and no SNP deployment ([docs/SNP.md](docs/SNP.md)).
+  document through `HOST_DATA`, or through the measured kernel command
+  line, and a pinned launch measurement, and the sidecar has a configfs-tsm
+  provider, but both are tested only with synthetic reports and a fake
+  configfs directory ([docs/SNP.md](docs/SNP.md)). A guest image for
+  Servury Blackbox VMs builds reproducibly and boots in QEMU without SNP;
+  its expected measurement was computed offline and never compared with a
+  real report. There is no SNP deployment, and that image keeps the vault
+  in memory only ([docs/SNP_SERVURY.md](docs/SNP_SERVURY.md)).
 * **Google Cloud Confidential Space was run live once (2026-11-27) and
   torn down.** It trusts Google's attestation service (the verifier checks a Google-signed
   token, not a hardware quote, and Google is also the host) and has no
@@ -210,7 +214,8 @@ fails against a relay and against a wrong compose hash.
 
 * Phala Cloud (managed dstack, TDX): [docs/PHALA.md](docs/PHALA.md)
 * Self-hosted dstack: [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md)
-* AMD SEV-SNP (verified in code, never run on hardware; no guest image yet): [docs/SNP.md](docs/SNP.md)
+* AMD SEV-SNP (verified in code, never run on hardware): [docs/SNP.md](docs/SNP.md);
+  image and runbook for Servury Blackbox (built, never booted on SNP): [docs/SNP_SERVURY.md](docs/SNP_SERVURY.md)
 * Google Cloud Confidential Space (research prototype, run live once on 2026-11-27 and torn down; a weaker trust statement, signed by Google rather than checked against a hardware quote, and no persistent storage): [docs/GCP_CONFIDENTIAL_SPACE.md](docs/GCP_CONFIDENTIAL_SPACE.md)
 
 ## Security

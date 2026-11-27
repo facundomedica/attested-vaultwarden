@@ -1045,3 +1045,62 @@ The attestation route now sends the CORS header there too, and
 that test in `facundo.dev` (`vault.gcp` A record to a released address, two
 CAA records at `gcp`) were to be deleted; see the open items of the
 2026-11-27 session if they are still present.
+
+### D-055 SEV-SNP on a rented host: compose hash on the measured command line; image for Servury Blackbox, never booted on SNP (2026-11-27)
+
+Details: [SNP_SERVURY.md](SNP_SERVURY.md), [SNP.md](SNP.md) §3.5. (D-054 is
+left free for parallel work.)
+
+* **Why a second mode.** D-050 binds the compose through `HOST_DATA`, which
+  needs a host the guest owner controls. Servury's "Blackbox" VMs (QEMU
+  direct boot, `kernel-hashes=on`, a published `AmdSevX64` OVMF) accept a
+  customer kernel, initrd and command line but expose neither `HOST_DATA`
+  nor an ID block. Everything the customer supplies is in `MEASUREMENT`.
+* **Binding.** `sev_snp.compose_binding = "measured-cmdline"`: the document
+  is in the measured initrd, its SHA-256 on the measured command line
+  (`avw.compose_sha256=`), and `/init` powers the guest off on a mismatch.
+  The verifier checks `MEASUREMENT` = `measurement`, SHA-256(served
+  document) = `compose_hash` (new, mandatory in this mode, refused in
+  `host-data` mode), and every D-050 launch check. `host-data` is
+  unchanged.
+* **What the verifier does not establish.** The report carries no compose
+  hash in this mode. The pair (`measurement`, `compose_hash`) is a policy
+  statement, reproducible with `deploy/sev-snp/build.sh --check` and
+  `measure.sh --policy`. Accepted because the initrd holds the whole root
+  file system: `MEASUREMENT` already fixes every byte, and the document
+  hash only makes the configuration visible to the existing checks.
+* **`HOST_DATA` is compared, not ignored**: it must equal `host_data`, and
+  all zero when the policy has none. The image never reads it, so it
+  cannot change behaviour; an unexpected value is still a launch nobody
+  reviewed, and failing costs nothing. Alternative rejected: ignoring it
+  (one less thing to break on the first boot, but a silent difference).
+* **SMT.** Servury's guest policy is `0x30000` (SMT allowed). No default
+  changes: the policy for that host must say `allow_smt = true`, and the
+  documents say what that accepts.
+* **Image: three processes, no container runtime** (as D-051's single
+  image). One static busybox, a short `/init`, the unmodified Vaultwarden
+  1.37.5 and Caddy 2.11.9 binaries copied from the digest-pinned images,
+  the sidecar from source, Debian's kernel package (the one Servury's own
+  release boots, pinned by SHA-256). A runtime would dominate the measured
+  code for no gain; the cost is no isolation between the three beyond
+  separate uids for Vaultwarden and Caddy. The compose-shaped document is
+  kept so the Images and Config checks work unchanged; service
+  environments and the Caddyfile are generated from it at build time.
+* **No inputs but the measured command line and the network**: no SSH,
+  getty, cloud-init, block driver or debug path. `avw.selftest=1` (boot
+  tests) is a command-line word and so a different measurement.
+* **State in memory only**: vault and TLS key on tmpfs; a stop loses both.
+  Durability is separate work and must keep that layout. No ACME account
+  survives a boot, so CAA `accounturi` pinning is not possible for this
+  deployment; CAA can pin the CA and the validation method only.
+* **Sidecar.** `ATTEST_SNP_BINDING=measured-cmdline`: checks the document
+  against `/proc/cmdline`; a missing SNP report at start-up is a warning
+  and requests fail with 503, so the image can be boot-tested without
+  hardware.
+* **Status.** Verifier mode: unit tests with synthetic reports. Image:
+  built twice with identical output; boots in QEMU 11.1.1 without SNP
+  (split and UKI shapes; refuses a tampered command line). Expected
+  measurement: computed with `sev-snp-measure` 0.0.13 and Servury's
+  firmware (downloaded, hash as published, not rebuilt). **Nothing was run
+  on SNP hardware; no account, no purchase.** The example policy
+  `policy/2026.11.0-sev-snp-servury-dev.example.toml` is marked unverified.

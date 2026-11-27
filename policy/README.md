@@ -10,7 +10,8 @@ A policy pins:
 * expected firmware/OS measurements (TDX: MRTD, RTMR0-2; SNP: launch
   measurement);
 * the hash of the measured compose document (TDX/dstack: `compose_hash`;
-  SNP: `host_data`, see [docs/SNP.md](../docs/SNP.md), untested on hardware);
+  SNP: `host_data`, or `compose_hash` with `compose_binding =
+  "measured-cmdline"`, see [docs/SNP.md](../docs/SNP.md), untested on hardware);
 * the allowlist of container images, each pinned by `@sha256:` digest;
 * the exact set of accepted TCB statuses, the lowest acceptable Intel TCB
   evaluation data number (`min_tcb_eval_data_number`, default 20) and PCK
@@ -20,7 +21,10 @@ A policy pins:
   D-049 (D-020: they differ between Phala Cloud and self-hosted dstack, so
   each target gets its own policy file);
 * SEV-SNP (D-050; verified in code, never run on hardware): `measurement`,
-  `min_tcb`, `compose_binding` and a non-zero `host_data` are **mandatory**;
+  `min_tcb` and `compose_binding` are **mandatory**, and so is a non-zero
+  `host_data` (`host-data` mode) or `compose_hash` (`measured-cmdline`
+  mode, D-055; there `host_data` is optional and absent means "must be
+  zero");
   `min_tcb.fmc` is needed for reports that carry an FMC SVN;
 * Confidential Space (D-051; implemented, never run on GCP; trusts Google's
   attestation service; no persistence): `hwmodel`, `restart_policy` and
