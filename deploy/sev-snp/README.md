@@ -1,8 +1,10 @@
-# AMD SEV-SNP (stretch goal, not started)
+# AMD SEV-SNP (no deployment kit yet)
 
-Plan: a plain SEV-SNP confidential VM booting our own UKI with measured
-direct boot; evidence from Linux configfs-tsm; expected launch measurement
-computed with VirTEE `sev-snp-measure` for the published OVMF + UKI.
-Optional: attestation-gated LUKS unlock (SNPGuard-style).
+Status: the verifier (`HOST_DATA` compose binding, launch-policy checks) and
+the sidecar (configfs-tsm provider) are implemented and tested with
+synthetic reports; **verified in code, never run on hardware**. There is no
+guest image and nothing to deploy from this directory.
 
-Nothing here is implemented yet. See docs/DECISIONS.md for open questions.
+Design, the requirements on the guest image, and the steps for a first
+deployment: [../../docs/SNP.md](../../docs/SNP.md) (DECISIONS D-050).
+Measurement tooling: `policy/measure/measure-snp.sh` (untested).
