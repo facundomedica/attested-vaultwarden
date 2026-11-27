@@ -54,6 +54,7 @@ const OID_BL: &str = "1.3.6.1.4.1.3704.1.3.1";
 const OID_TEE: &str = "1.3.6.1.4.1.3704.1.3.2";
 const OID_SNP: &str = "1.3.6.1.4.1.3704.1.3.3";
 const OID_UCODE: &str = "1.3.6.1.4.1.3704.1.3.8";
+const OID_FMC: &str = "1.3.6.1.4.1.3704.1.3.9";
 const OID_HWID: &str = "1.3.6.1.4.1.3704.1.4";
 
 type Roots = (&'static str, &'static [u8], &'static [u8]);
@@ -176,10 +177,22 @@ pub fn verify_report(
         ext_u8(&vc, OID_UCODE)?,
     );
     let rep_tcb = (rt.bootloader, Some(rt.tee), Some(rt.snp), rt.microcode);
-    if cert_tcb != rep_tcb {
+    // Fail closed: a component missing on either side is a mismatch, never
+    // "None == None". The FMC SVN (Turin and later) is bound the same way
+    // when either side carries it.
+    let cert_fmc = ext_u8(&vc, OID_FMC)?;
+    if !tcb_bound(cert_tcb, rep_tcb, cert_fmc, rt.fmc) {
         return Err(SnpError::VcekMismatch(format!(
-            "VCEK is for TCB {cert_tcb:?}, report says {rep_tcb:?}"
+            "VCEK is for TCB {cert_tcb:?} fmc {cert_fmc:?}, report says {rep_tcb:?} fmc {:?} (every component must be present and equal)",
+            rt.fmc
         )));
+    }
+    if rt.fmc.is_some() {
+        // The policy format has no minimum for the FMC SVN yet, so a report
+        // that carries one cannot be judged against it.
+        return Err(SnpError::VcekMismatch(
+            "report carries an FMC SVN (Turin or later); no minimum can be pinned for it yet, refusing".into(),
+        ));
     }
     match ext_hwid(&vc)? {
         Some(h) if h == report.chip_id => {}
@@ -189,10 +202,8 @@ pub fn verify_report(
 
     check_guest(&report)?;
     let m = &policy.min_tcb;
-    let below = rt.bootloader.is_some_and(|b| b < m.bootloader)
-        || rt.tee < m.tee
-        || rt.snp < m.snp
-        || rt.microcode.is_some_and(|u| u < m.microcode);
+    // A component the report does not carry counts as below the minimum.
+    let below = below_min_tcb(rt.bootloader, rt.tee, rt.snp, rt.microcode, m);
     let got = tcb_str(rt.bootloader, rt.tee, rt.snp, rt.microcode);
     if below {
         return Err(SnpError::Tcb {
@@ -207,6 +218,82 @@ pub fn verify_report(
         report_data: report.report_data,
         reported_tcb: got,
     })
+}
+
+type TcbParts = (Option<u8>, Option<u8>, Option<u8>, Option<u8>);
+
+/// The VCEK is bound to the report's TCB only if every component
+/// (bootloader, TEE, SNP, microcode) is present on both sides and equal, and
+/// the FMC SVN is equal too (absent on both sides before Turin).
+fn tcb_bound(
+    cert: TcbParts,
+    report: TcbParts,
+    cert_fmc: Option<u8>,
+    report_fmc: Option<u8>,
+) -> bool {
+    let complete = |t: &TcbParts| t.0.is_some() && t.1.is_some() && t.2.is_some() && t.3.is_some();
+    complete(&cert) && complete(&report) && cert == report && cert_fmc == report_fmc
+}
+
+/// A component the report does not carry counts as below the minimum.
+fn below_min_tcb(
+    bootloader: Option<u8>,
+    tee: u8,
+    snp: u8,
+    microcode: Option<u8>,
+    min: &attested_vw_common::policy::SnpMinTcb,
+) -> bool {
+    bootloader.is_none_or(|b| b < min.bootloader)
+        || tee < min.tee
+        || snp < min.snp
+        || microcode.is_none_or(|u| u < min.microcode)
+}
+
+#[cfg(test)]
+mod fail_closed_tests {
+    use super::{below_min_tcb, tcb_bound};
+    use attested_vw_common::policy::SnpMinTcb;
+
+    #[test]
+    fn missing_tcb_component_is_a_mismatch() {
+        let full = (Some(3), Some(0), Some(8), Some(115));
+        assert!(tcb_bound(full, full, None, None));
+        assert!(tcb_bound(full, full, Some(1), Some(1)));
+        // Review finding: None == None used to count as a match.
+        let no_bl = (None, Some(0), Some(8), Some(115));
+        let no_uc = (Some(3), Some(0), Some(8), None);
+        assert!(!tcb_bound(no_bl, no_bl, None, None));
+        assert!(!tcb_bound(no_uc, no_uc, None, None));
+        assert!(!tcb_bound(full, no_uc, None, None));
+        assert!(!tcb_bound(
+            full,
+            (Some(3), Some(0), Some(8), Some(116)),
+            None,
+            None
+        ));
+        // The FMC SVN was never compared.
+        assert!(!tcb_bound(full, full, Some(1), None));
+        assert!(!tcb_bound(full, full, None, Some(1)));
+        assert!(!tcb_bound(full, full, Some(1), Some(2)));
+    }
+
+    #[test]
+    fn missing_tcb_component_is_below_minimum() {
+        let min = SnpMinTcb {
+            bootloader: 3,
+            tee: 0,
+            snp: 8,
+            microcode: 115,
+        };
+        assert!(!below_min_tcb(Some(3), 0, 8, Some(115), &min));
+        assert!(!below_min_tcb(Some(4), 1, 9, Some(200), &min));
+        assert!(below_min_tcb(Some(2), 0, 8, Some(115), &min));
+        assert!(below_min_tcb(Some(3), 0, 7, Some(115), &min));
+        assert!(below_min_tcb(Some(3), 0, 8, Some(114), &min));
+        // Review finding: is_some_and skipped the comparison when None.
+        assert!(below_min_tcb(None, 0, 8, Some(115), &min));
+        assert!(below_min_tcb(Some(3), 0, 8, None, &min));
+    }
 }
 
 #[cfg(test)]

@@ -767,3 +767,125 @@ and in the policy headers use the new IDs (e.g. the deployed sidecar
   unaffected (it binds the key of the connection it is on). The domain-wide
   claim needs a dedicated domain without outside wildcards, ideally with
   CAA pinned at its apex and the name served via A records.
+
+### D-049 Security review fixes: fail-closed verifier, 2026.11.4 template (2026-11-27)
+
+An internal security review (with proof-of-concept tests) found places where
+the verifier accepted more than the documentation claimed. All fixed fail
+closed, each with a regression test. Choices that were not forced:
+
+* **Mandatory pins instead of opt-outs.** `tdx.app_id` and
+  `tdx.key_provider` are required; there is no `"any"` value. Consequence:
+  `policy/2026.11.0-phala-dev.toml` and `2026.11.1-phala-dev.toml`, which
+  predate `app_id`, no longer validate (clear error naming the field).
+  They are release artifacts and were left untouched; `policy/README.md`
+  records it. `2026.11.2-phala-dev.toml` validates unchanged. The policy
+  schema number stays 1: every new field is optional with a safe default.
+* **`accepted_tcb_status` is the exact set.** dcap-qvl's
+  `QuotePolicy::strict` always accepts `UpToDate`; the set is re-checked on
+  the verified claims. `Revoked` and unknown names are invalid in a policy.
+* **TCB rollback through the collateral source.** New
+  `tdx.min_tcb_eval_data_number`, default 20 (Intel PCS, TDX, standard set,
+  2026-11-26, as recorded in `verifier/testdata/dstack/tdx-lite-collateral.json`),
+  passed to dcap-qvl 0.7.1 `QuotePolicy::min_tcb_eval_data_number` (which
+  compares the lower of TCB info and QE identity). The observed number is
+  in the report. `update=early` is available as `--early-tcb` but is not
+  the default: under the early set a platform can be `OutOfDate` while it
+  is still within Intel's own update window, which would turn the live
+  deployment's PASS into a FAIL through no fault of the operator. Earlier
+  statements that the collateral source "affects availability only" were
+  wrong and are corrected.
+* **MRCONFIGID / MROWNER / MROWNERCONFIG.** Recorded in the report.
+  MROWNER and MROWNERCONFIG must be zero unless pinned (dstack never sets
+  them). MRCONFIGID is set by the dstack VMM (`use_mrconfigid`): version 1
+  is `0x01 ‖ compose_hash` (the upstream fixture quote has exactly that, and
+  the verifier recomputes it); with a `key_provider_id` in the app-compose,
+  as on Phala, the VMM uses version 2 (Keccak-256) or 3 (SHA-256 over a
+  host-generated JSON document). No live Phala quote was available when
+  this was written (the deployment was being replaced), and the verifier
+  has neither Keccak nor the v3 document, so versions 2 and 3 are accepted
+  **by shape only, with a note**, unless `tdx.mr_config_id` pins the value.
+  Justification: the measured dstack OS refuses to boot when a non-zero
+  MRCONFIGID disagrees with the compose hash, app id and key provider it
+  measured, and the verifier checks those three directly. TODO: pin
+  `mr_config_id` in the next policy from the observed value.
+* **RTMR3 is the exact dstack boot sequence** (D-010, D-028 tightened):
+  `system-preparing, app-id, compose-hash, [gpu-policy-hash], instance-id,
+  boot-mr-done, {[os-image-hash], key-provider}, storage-fs,
+  [storage-encrypted], system-ready`. No duplicates, nothing after
+  `system-ready`, no `init-script-hash`, no `gpu-attestation`. The live
+  log's 11 events are the fixture's 9 plus `os-image-hash` and
+  `storage-encrypted`; the relative order of `os-image-hash` and
+  `key-provider` was not observable offline, so both orders are accepted.
+* **Compose rules are an allowlist of service keys** plus value checks,
+  not only a deny-list: a key the verifier has not reviewed is refused, so
+  a future compose feature cannot slip through. The check is described as
+  what it is: known pitfalls, not a proof of safety. `public_logs` can be
+  pinned (`public_logs = true|false`); when a policy does not pin it the
+  value is printed as a note and not enforced, because 2026.11.2 has
+  `public_logs = true` and no pin, and must keep passing.
+* **Rate limit.** Per client address (last `X-Forwarded-For` element,
+  written by Caddy) under a global budget of 40/s, and the verifier retries
+  once after a 429. Behind the Phala gateway every client arrives from the
+  gateway's address, so there the per-client budget is shared and the
+  improvement is the retry only. Verification fails closed either way.
+
+**Template for 2026.11.4** (`deploy/dstack/docker-compose.template.yml`;
+not deployed, no policy yet):
+
+* `caddy_certs`, a tmpfs-backed named volume (`driver_opts: type=tmpfs`),
+  mounted at `/data/caddy/certificates` in `proxy` and read-only at
+  `/certs` in `attest`. Tested with Docker 29.4 and the pinned Caddy image:
+  both containers see the same tmpfs; the key survives a restart of the
+  proxy alone and is regenerated once every container using the volume has
+  stopped. Caddy re-issues at start. Limit: Let's Encrypt issues at most 5
+  identical certificates per week.
+* `attest` no longer mounts `caddy_data`. It still runs as uid 0 (all
+  capabilities dropped): Caddy writes `0600 root` files in `0700`
+  directories, and a non-root uid gets "Permission denied" (tested).
+  Running Caddy as the same non-root uid would work for new deployments
+  but would lock an existing deployment out of its root-owned ACME account.
+* Vaultwarden: `CONFIG_FILE=/run/vaultwarden/config.json` on a tmpfs.
+  Tested on the pinned 1.37.5: a planted `/data/config.json` overrides the
+  environment by default, and is ignored with `CONFIG_FILE` set.
+* `rsa_key.pem` stays on `/data`. Moving it to a tmpfs would give a new
+  signing key at every start, invalidating all access tokens (and, in
+  current Vaultwarden, refresh tokens and invitation/verification links,
+  which are JWTs signed with the same key): every user signed out at each
+  restart. What a copied key gives an attacker is session forgery against
+  the attested server (encrypted vaults and metadata, not plaintext).
+  Accepted for now; the real fix is the KMS policy below.
+* Not solved by the template: THREAT_MODEL §1 (precondition of C3/C4). The
+  fix is a key provider that releases the disk key only to allowlisted
+  compose hashes.
+* **Stale Docker state under a new compose hash (seen live, 2026-11-27).**
+  After a Phala compose update that changed only the inline Caddyfile,
+  `docker compose up` did not recreate the proxy container, and Caddy kept
+  the old configuration while the CVM measured the new compose. Containers
+  live on the persistent data disk and are not measured. A revision suffix
+  on the config name (deploy agent's change to `render.sh`/template) forces
+  recreation for honest updates. The general gap (any container, network
+  or materialised config left by an earlier compose of the same app id)
+  needs the launcher to start from nothing. Options considered:
+  1. `docker compose up --force-recreate`: the right tool, but the flag is
+     set in dstack's `app-compose.sh` inside the measured OS image, which
+     an app cannot change. Worth proposing upstream.
+  2. **Chosen:** a measured pre-launch script
+     (`deploy/dstack/pre-launch-clean.sh.template`) that runs
+     `docker rm -f -v` on every container and `docker network prune -f`,
+     then aborts the boot if a container is left. dstack sources the
+     script under `set -euo pipefail` right before `docker compose up`.
+     Named volumes are kept. `render.sh` writes it for every target
+     (`phala`, `phala-private` with the GHCR login appended, and into
+     `app-compose.json` for self-hosted targets) and prints the hash for
+     `pre_launch_script_sha256`. On Phala this means
+     `--pre-launch-script pre-launch.sh --no-dev-os` for both targets
+     (`--no-pre-launch-script` gave no script; omitting both flags gives
+     Phala's unpinned default script, which the verifier refuses).
+  3. `docker system prune -a --volumes` or deleting the Docker data root:
+     would also drop the image store, but named volumes hold the vault.
+  Not verified on dstack (no deployment from this branch). Open points to
+  check on first use: the Docker daemon must be running when the script is
+  sourced; old containers with a restart policy run from daemon start
+  until the script removes them; whether dstack rewrites
+  `docker-compose.yaml` in its work directory on every boot.

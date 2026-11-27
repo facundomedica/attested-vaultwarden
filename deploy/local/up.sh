@@ -43,6 +43,9 @@ schema = 1
 release = "local-mock"
 date = "$(date -u +%Y-%m-%d)"
 platform = "mock"
+# The mock sidecar reads the app-compose from a file next to the compose (on
+# dstack it comes from the guest agent); the policy must allow that bind.
+allowed_bind_mounts = ["attest:./app-compose.json:/etc/attest/app-compose.json:ro"]
 
 [mock]
 compose_hash = "${compose_hash}"

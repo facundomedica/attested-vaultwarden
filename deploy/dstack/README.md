@@ -6,7 +6,10 @@
   dstack measures this document (via `app-compose.json`) but does **not**
   measure encrypted environment variable values.
 * `render.sh <domain> <attest-image@sha256> [none|local|phala|phala-private] [out]`:
-  fills in the domain and sidecar digest; `phala-private` also writes the
+  fills in the domain and sidecar digest and writes `pre-launch.sh`, the
+  measured script that removes containers and networks left on the data
+  disk before compose starts (`pre-launch-clean.sh.template`, D-049);
+  `phala-private` appends the
   measured GHCR login script from `pre-launch-ghcr.sh.template`.
 * `simulator/`: test of the sidecar against dstack's guest-agent simulator.
 

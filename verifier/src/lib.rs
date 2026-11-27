@@ -33,8 +33,13 @@ pub struct Options {
     /// Trust anchors for the TLS connection.
     pub roots: Roots,
     /// Where to fetch Intel DCAP collateral (Intel PCS by default). The
-    /// collateral is Intel-signed, so the source affects availability only.
+    /// collateral is Intel-signed, so the source cannot forge it, but it
+    /// picks which signed version we see: it can roll the TCB verdict back
+    /// to an older evaluation data set unless the policy's
+    /// `tdx.min_tcb_eval_data_number` forbids it (see [`fetch`]).
     pub pccs_url: String,
+    /// Ask for Intel's `update=early` TCB evaluation data set.
+    pub early_tcb: bool,
     /// AMD Key Distribution Service base URL (VCEK certificates).
     pub kds_url: String,
 }
@@ -45,8 +50,32 @@ impl Options {
             allow_insecure_mock: false,
             roots,
             pccs_url: fetch::INTEL_PCS_URL.to_owned(),
+            early_tcb: false,
             kds_url: fetch::AMD_KDS_URL.to_owned(),
         }
+    }
+}
+
+/// How long to wait before the single retry after an HTTP 429 from the
+/// attestation endpoint (its rate limit is shared by all clients).
+const RATE_LIMIT_BACKOFF: std::time::Duration = std::time::Duration::from_millis(1500);
+
+/// One attempt, repeated once after a pause if the endpoint answered 429.
+/// The retry uses a new connection and the same nonce (still ours, still
+/// unused); the TLS key is re-read from the new handshake.
+async fn fetch_with_retry(
+    t: &net::Target,
+    roots: &Roots,
+    nonce: &Nonce,
+    report: &mut Report,
+) -> Result<net::Fetched, net::NetError> {
+    match net::fetch(t, roots, nonce).await {
+        Err(net::NetError::Status(429, _)) => {
+            report.note("attestation endpoint was rate limited (HTTP 429); retried once");
+            tokio::time::sleep(RATE_LIMIT_BACKOFF).await;
+            net::fetch(t, roots, nonce).await
+        }
+        other => other,
     }
 }
 
@@ -85,18 +114,16 @@ pub async fn verify(target: &str, policy: &Policy, opts: &Options) -> Report {
         return first;
     }
     let mut second = verify_once(target, policy, opts).await;
-    second.notes.push(
-        "first attempt failed on the TLS key binding; retried once on a new connection".into(),
-    );
+    second.note("first attempt failed on the TLS key binding; retried once on a new connection");
     second
 }
 
 async fn verify_once(target: &str, policy: &Policy, opts: &Options) -> Report {
     let mut report = Report::new(target);
     report.policy_release = Some(policy.release.clone());
-    report.notes.push(match &opts.roots {
-        Roots::WebPki => "TLS trust roots: Mozilla WebPKI (webpki-roots)".into(),
-        Roots::Custom(_) => "TLS trust roots: custom CA file only (NOT WebPKI)".into(),
+    report.note(match &opts.roots {
+        Roots::WebPki => "TLS trust roots: Mozilla WebPKI (webpki-roots)",
+        Roots::Custom(_) => "TLS trust roots: custom CA file only (NOT WebPKI)",
     });
 
     let t = match net::Target::parse(target) {
@@ -113,7 +140,7 @@ async fn verify_once(target: &str, policy: &Policy, opts: &Options) -> Report {
             return report;
         }
     };
-    let fetched = match net::fetch(&t, &opts.roots, &nonce).await {
+    let fetched = match fetch_with_retry(&t, &opts.roots, &nonce, &mut report).await {
         Ok(f) => f,
         Err(e @ (net::NetError::Status(..) | net::NetError::Http(_))) => {
             report.pass(CheckId::Tls, "handshake ok");
@@ -149,7 +176,14 @@ async fn verify_once(target: &str, policy: &Policy, opts: &Options) -> Report {
     {
         match doc.platform {
             Platform::Tdx => {
-                ctx.tdx_collateral = fetch::tdx_collateral(&opts.pccs_url, &quote).await
+                if opts.pccs_url != fetch::INTEL_PCS_URL {
+                    report.note(format!(
+                        "TDX collateral from {} (not Intel PCS): it can serve older Intel-signed TCB data, down to the policy's minimum evaluation data number",
+                        opts.pccs_url
+                    ));
+                }
+                ctx.tdx_collateral =
+                    fetch::tdx_collateral(&opts.pccs_url, &quote, opts.early_tcb).await
             }
             Platform::SevSnp => ctx.snp_vcek_der = fetch::snp_vcek(&opts.kds_url, &quote).await,
             Platform::Mock => {}
@@ -282,14 +316,22 @@ pub fn check_document(
         .as_deref()
         .and_then(|v| serde_json::from_str(v).ok());
     report.observed.pre_launch_script_sha256 = compose::pre_launch_script_sha256(&doc.app_compose);
-    report.observed.allowed_envs = serde_json::from_str::<serde_json::Value>(&doc.app_compose)
+    report.observed.allowed_envs = compose::parse_json_strict(&doc.app_compose)
         .ok()
         .and_then(|v| v.get("allowed_envs").cloned())
         .and_then(|a| serde_json::from_value(a).ok())
         .unwrap_or_default();
+    report.observed.app_compose_flags =
+        compose::app_compose_flags(&doc.app_compose).unwrap_or_default();
     if let evidence::Measured::Tdx(q) = &verified.measured {
         let o = &mut report.observed;
         o.tcb_status = Some(q.tcb_status.clone());
+        o.tcb_eval_data_number = Some(q.tcb_eval_data_number);
+        o.mr_config_id = Some(hex::encode(q.mr_config_id));
+        o.mr_owner = Some(hex::encode(q.mr_owner));
+        o.mr_owner_config = Some(hex::encode(q.mr_owner_config));
+        o.td_attributes = Some(hex::encode(q.td_attributes));
+        o.xfam = Some(hex::encode(q.xfam));
         o.advisory_ids = q.advisory_ids.clone();
         o.pck_flags_set = q.pck_flags_set.iter().map(|s| s.to_string()).collect();
         o.mrtd = Some(hex::encode(q.mr_td));
@@ -365,19 +407,7 @@ pub fn check_document(
         ),
     }
 
-    // Nothing outside the measured document may decide what runs.
-    match compose::config_problems(
-        &doc.app_compose,
-        policy.pre_launch_script_sha256.as_deref(),
-        &policy.allowed_envs,
-    ) {
-        Err(e) => report.fail(CheckId::Config, e.to_string()),
-        Ok(p) if p.is_empty() => report.pass(
-            CheckId::Config,
-            "pre-launch script, init script and encrypted env names exactly as the policy pins; no variable interpolation",
-        ),
-        Ok(p) => report.fail(CheckId::Config, p.join("; ")),
-    }
+    check_config(&doc.app_compose, policy, report);
 
     // Images, derived from the (hash-checked) app-compose, never from
     // `image_digests`.
@@ -390,9 +420,10 @@ pub fn check_document(
                 .iter()
                 .map(|i| (i.service.clone(), i.image.clone()))
                 .collect();
+            let clean = |s: &str| report::sanitize(s, report::MAX_DETAIL_CHARS);
             report.observed.images = imgs
                 .iter()
-                .map(|i| (i.service.clone(), i.image.clone()))
+                .map(|i| (clean(&i.service), clean(&i.image)))
                 .collect();
             let problems = compose::check_images(&imgs, &allow);
             if problems.is_empty() {
@@ -408,11 +439,82 @@ pub fn check_document(
                 report.fail(CheckId::Images, msg.join("; "));
             }
             if doc.image_digests != imgs {
-                report.notes.push(
-                    "note: informational `image_digests` field differs from the measured compose (ignored)".into(),
+                report.note(
+                    "note: informational `image_digests` field differs from the measured compose (ignored)",
                 );
             }
         }
+    }
+}
+
+/// The `Config` check. Nothing outside the measured document may decide
+/// what runs (launch scripts, injected env, interpolation), the compose
+/// must not hand a container host-level access
+/// ([`compose::hardening_problems`]), and `public_logs` must be what the
+/// policy pins. These are known pitfalls, not a proof of a safe
+/// configuration: the compose hash is what pins the document.
+fn check_config(app_compose: &str, policy: &Policy, report: &mut Report) {
+    let hardening = compose::Hardening {
+        allowed_bind_mounts: &policy.allowed_bind_mounts,
+        command_override_services: &policy.command_override_services,
+    };
+    let problems = compose::config_problems(
+        app_compose,
+        policy.pre_launch_script_sha256.as_deref(),
+        &policy.allowed_envs,
+    )
+    .and_then(|mut p| {
+        p.extend(compose::hardening_problems(app_compose, hardening)?);
+        let logs = compose::flag(app_compose, "public_logs")?;
+        match policy.public_logs {
+            Some(want) if want != logs => p.push(format!(
+                "app-compose has public_logs = {logs} (container logs {} served outside the CVM), policy pins {want}",
+                if logs { "are" } else { "are not" }
+            )),
+            Some(_) => {}
+            None => report.note(format!(
+                "policy does not pin public_logs; the measured app-compose has public_logs = {logs}{}",
+                if logs { ": container logs are readable from outside the CVM" } else { "" }
+            )),
+        }
+        Ok((p, logs))
+    });
+    match problems {
+        Err(e) => report.fail(CheckId::Config, e.to_string()),
+        Ok((p, logs)) if p.is_empty() => report.pass(
+            CheckId::Config,
+            format!(
+                "pre-launch script, init script and encrypted env names as the policy pins; no variable interpolation; no privileged, host-namespace, host-path or command-override settings; public_logs = {logs}"
+            ),
+        ),
+        Ok((p, _)) => report.fail(CheckId::Config, p.join("; ")),
+    }
+}
+
+/// The key provider recorded in RTMR3 against the policy pin and against
+/// the `key_provider_id` the measured app-compose asks for.
+fn key_provider_problems(
+    measured: &str,
+    pin: Option<&str>,
+    app_compose: &str,
+    problems: &mut Vec<String>,
+) {
+    match pin {
+        None => problems.push("policy does not pin key_provider (required)".into()),
+        Some(want) if want != measured => {
+            problems.push(format!("key-provider is {measured} (policy: {want})"))
+        }
+        Some(_) => {}
+    }
+    let measured_id = attested_vw_common::policy::key_provider_id(measured);
+    match (compose::key_provider_id(app_compose), measured_id) {
+        (Err(e), _) => problems.push(e.to_string()),
+        (_, Err(e)) => problems.push(format!("key-provider payload {measured}: {e}")),
+        (Ok(None), Ok(_)) => {}
+        (Ok(Some(want)), Ok(got)) if want == got => {}
+        (Ok(Some(want)), Ok(got)) => problems.push(format!(
+            "app-compose asks for key_provider_id {want} but the key provider measured in RTMR3 has id `{got}`"
+        )),
     }
 }
 
@@ -474,23 +576,32 @@ fn check_tdx_measurements(
     };
     report.observed.compose_hash_measured = Some(hex::encode(facts.compose_hash));
     report.observed.app_id = Some(hex::encode(&facts.app_id));
-    report.observed.key_provider = Some(facts.key_provider.clone());
+    report.observed.key_provider = Some(report::sanitize(
+        &facts.key_provider,
+        report::MAX_DETAIL_CHARS,
+    ));
+    report.observed.rtmr3_events = events.iter().map(|e| e.name.clone()).collect();
     let mut problems = Vec::new();
-    if let Some(want) = &tp.app_id
-        && !hex_eq(want, &facts.app_id)
-    {
-        problems.push(format!(
+    // Both pins are mandatory (Policy::validate); a policy built in code
+    // without them fails here rather than skipping the check.
+    match &tp.app_id {
+        None => problems.push("policy does not pin app_id (required)".into()),
+        Some(want) if !hex_eq(want, &facts.app_id) => problems.push(format!(
             "app-id is {} (policy: {want})",
             hex::encode(&facts.app_id)
-        ));
+        )),
+        Some(_) => {}
     }
-    if let Some(want) = &tp.key_provider
-        && *want != facts.key_provider
-    {
-        problems.push(format!(
-            "key-provider is {} (policy: {want})",
-            facts.key_provider
-        ));
+    key_provider_problems(
+        &facts.key_provider,
+        tp.key_provider.as_deref(),
+        &doc.app_compose,
+        &mut problems,
+    );
+    let (launch, launch_note) = tdx::check_launch_fields(q, tp, &facts.compose_hash);
+    problems.extend(launch);
+    if let Some(n) = launch_note {
+        report.note(n);
     }
     if tp.require_storage_encrypted && facts.storage_encrypted != Some(true) {
         problems.push(

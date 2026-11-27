@@ -1,0 +1,33 @@
+# Attested Vaultwarden pre-launch script, part 1: start from the measured
+# compose only (measured: part of app-compose; pinned by the policy's
+# pre_launch_script_sha256).
+#
+# dstack `source`s the pre-launch script from app-compose.sh under
+# `set -euo pipefail`, then runs `docker compose up -d` on the measured
+# compose. Docker's state (containers, networks, the files compose
+# materialises for inline `configs`) lives on the persistent data disk and
+# is NOT measured. `docker compose up` reuses a container whose service
+# definition it considers unchanged, and dstack passes no --force-recreate.
+# Seen live: after a compose update that changed only the inline Caddyfile,
+# the proxy container was kept and Caddy went on serving the OLD
+# configuration while RTMR3 held the NEW compose hash.
+#
+# So before compose runs, remove every container (with its anonymous
+# volumes) and every unused network. Named volumes are kept: they hold the
+# data. Every container is then created from the measured compose on this
+# boot. A failure here aborts the boot (fail closed).
+#
+# This does not make the persistent disk trustworthy: a non-published
+# compose that ran earlier under the same app id could have changed the
+# image store or the named volumes (docs/THREAT_MODEL.md section 1).
+avw_leftover="$(docker ps -aq)"
+if [ -n "$avw_leftover" ]; then
+  # shellcheck disable=SC2086  # word splitting intended: one id per word
+  docker rm -f -v $avw_leftover
+fi
+docker network prune -f
+if [ -n "$(docker ps -aq)" ]; then
+  echo "pre-launch: containers left after cleanup, refusing to start" >&2
+  exit 1
+fi
+unset avw_leftover
