@@ -227,6 +227,14 @@ mod tests {
     }
 
     #[test]
+    fn shipped_example_policy_is_valid() {
+        let p = Policy::from_toml(include_str!("../../deploy/gcp-cs/policy.example.toml"))
+            .expect("example policy");
+        assert_eq!(p.platform.as_str(), "gcp-cs");
+        assert_eq!(p.gcp_cs.expect("section").hwmodel, ["GCP_INTEL_TDX"]);
+    }
+
+    #[test]
     fn policy_rejects_bad_values() {
         let two = format!("{}{}", one_image(), one_image());
         assert!(Policy::from_toml(&policy("", &two)).is_err());
