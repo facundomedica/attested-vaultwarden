@@ -247,6 +247,52 @@ pub fn verify_report(
     })
 }
 
+/// AMD's Key Distribution Service.
+pub const AMD_KDS_URL: &str = "https://kdsintf.amd.com";
+
+/// Largest VCEK accepted from any source (AMD's are about 1.4 kB).
+pub const MAX_VCEK_BYTES: usize = 16 * 1024;
+
+/// Where AMD KDS serves the VCEK for this report, one `(product, URL)` per
+/// product to try in turn
+/// (`/vcek/v1/{product}/{hwid}?blSPL=..&teeSPL=..&snpSPL=..&ucodeSPL=..`,
+/// AMD spec 57230). The product is not encoded in older reports, so Milan
+/// and Genoa are both listed. Turin (8-byte hwID, `fmcSPL`) is not
+/// supported: such a deployment must put the VCEK in the certificate table.
+/// The URL is built from unsigned report bytes; that is harmless, because
+/// whatever KDS answers is checked against the report afterwards
+/// ([`verify_report`]). UNCONFIRMED against a live SNP deployment.
+pub fn kds_vcek_urls(
+    kds_url: &str,
+    report_bytes: &[u8],
+) -> Result<Vec<(&'static str, String)>, String> {
+    let r = AttestationReport::from_bytes(report_bytes)
+        .map_err(|e| format!("attestation report is malformed: {e}"))?;
+    let t = r.reported_tcb;
+    let (Some(bl), Some(uc)) = (t.bootloader, t.microcode) else {
+        return Err("reported TCB lacks bootloader/microcode SVN (unsupported product)".into());
+    };
+    if t.fmc.is_some() {
+        return Err(
+            "report carries an FMC SVN (Turin or later): fetching its VCEK from AMD KDS is not supported; the server must send it in the certificate table"
+                .into(),
+        );
+    }
+    let hwid = hex::encode(r.chip_id);
+    Ok(["Milan", "Genoa"]
+        .into_iter()
+        .map(|product| {
+            (
+                product,
+                format!(
+                    "{kds_url}/vcek/v1/{product}/{hwid}?blSPL={bl:02}&teeSPL={:02}&snpSPL={:02}&ucodeSPL={uc:02}",
+                    t.tee, t.snp
+                ),
+            )
+        })
+        .collect())
+}
+
 type TcbParts = (Option<u8>, Option<u8>, Option<u8>, Option<u8>);
 
 /// The VCEK is bound to the report's TCB only if every component

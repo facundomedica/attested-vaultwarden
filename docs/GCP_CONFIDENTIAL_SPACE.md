@@ -319,6 +319,9 @@ Consequences, stated plainly:
    Google's JWKS over WebPKI TLS from a pinned URL on every run. Whoever can
    forge a certificate for `www.googleapis.com` to the verifier can forge
    attestations. (PKI tokens against a stored root would remove this.)
+   The browser verifier (`web/`) has the same dependency through the
+   browser's TLS: it fetches the same pinned URL at each run, which Google
+   serves with CORS headers (web/README.md, "Platforms").
 4. **`GCP_AMD_SEV` is weaker again**: no CPU-signed report is involved, only
    the Google-operated vTPM. The example policy accepts `GCP_INTEL_TDX`
    only.

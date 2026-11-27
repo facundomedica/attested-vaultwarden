@@ -289,6 +289,245 @@ await test("bundle: policies load in the verifier, or are refused with a reason"
   assert.equal(load(names[names.length - 1]).report.policy_release, names[names.length - 1]);
 });
 
+// ---------------------------------------------- gcp-cs and sev-snp
+// A small mock network for the other two platforms: the attestation
+// endpoint serves `doc(nonce)`, Cert Spotter lists one certificate with
+// `ctKey`, and `routes` maps exact URL prefixes to responses.
+const ctCert = (host, key) =>
+  JSON.stringify([{
+    id: "1", dns_names: [host], pubkey_sha256: key,
+    not_before: "2026-11-01T00:00:00Z", not_after: "2027-02-01T00:00:00Z",
+    issuer: { friendly_name: "Test CA" },
+  }]);
+function platformNetwork({ host, doc, ctKey, routes }) {
+  return async (url, opts = {}) => {
+    const u = new URL(url);
+    requests.push(String(url).split("?")[0]);
+    assert.equal(opts.credentials, "omit", "requests must not carry credentials");
+    assert.equal(opts.referrerPolicy, "no-referrer");
+    if (u.host === host) return new Response(doc(u.searchParams.get("nonce")), { status: 200 });
+    if (u.host === "api.certspotter.com") {
+      const first = !u.searchParams.get("after") && u.searchParams.get("domain") === host;
+      return new Response(first ? ctCert(host, ctKey) : "[]", { status: 200 });
+    }
+    for (const [prefix, answer] of Object.entries(routes)) {
+      if (String(url).startsWith(prefix)) {
+        assert.equal(opts.redirect, "error", "trust material must not follow redirects");
+        return answer(url);
+      }
+    }
+    throw new Error(`unexpected request to ${url}`);
+  };
+}
+const fromHex = (h) => Uint8Array.from(h.match(/../g), (b) => parseInt(b, 16));
+
+// Google Cloud Confidential Space: the document a real Confidential Space
+// VM served on 2026-11-27, Google's real key set of that day, the committed
+// release policy, and the clock pinned inside the token's hour.
+const gcpDoc = readFileSync(join(root, "verifier/testdata/gcp-cs/live-2026-11-27.document.json"), "utf8");
+const gcpJwks = readFileSync(join(root, "verifier/testdata/gcp-cs/google-jwks-2026-11-27.json"), "utf8");
+const gcp = JSON.parse(gcpDoc);
+const GCP_HOST = "vault.gcp.facundo.dev";
+const GCP_POLICY = "2026.11.0-gcp-cs-dev";
+const GCP_NOW = (1795775236 + 60) * 1000;
+const goGcp = ({ jwks = () => new Response(gcpJwks, { status: 200 }), ctKey = gcp.spki_sha256, now = GCP_NOW, nonce = gcp.nonce, policy = bundle.policies[GCP_POLICY] } = {}) => {
+  requests.length = 0;
+  const e = env(
+    platformNetwork({
+      host: GCP_HOST,
+      // The recorded answer, whatever nonce is asked for (a replay if the
+      // page's nonce differs).
+      doc: () => gcpDoc,
+      ctKey,
+      routes: { [AVW.GCP_JWKS_URL]: jwks },
+    }),
+    now,
+  );
+  // The page's "random" nonce is the one the recorded token was made for.
+  e.randomBytes = () => fromHex(nonce);
+  return AVW.run(e, { host: GCP_HOST, policyToml: policy, knownSpkis: [] });
+};
+
+await test("gcp-cs: recorded real token, JWKS fetched live by the page: PASS (browser mode)", async () => {
+  assert(bundle.policies[GCP_POLICY], "gcp-cs policy is bundled");
+  const { input, output } = await goGcp();
+  assert.deepEqual(marks(output), [
+    "+fetch", "+nonce", "+evidence", "+report_data_claimed",
+    "+measurements", "+config", "+images", "+ct_binding",
+  ], output.text);
+  assert.equal(output.passed, true);
+  assert.match(output.text, /Result: {2}PASS \(browser mode: CT-based binding\)$/);
+  assert.match(output.text, /RS256 signature valid under Google key/);
+  assert.match(output.text, /Google's token signing keys were fetched by this page from https:\/\/www\.googleapis\.com\//);
+  assert.doesNotMatch(output.text, /TLS key bound to attestation:/);
+  assert.equal(input.gcp_jwks, gcpJwks);
+  assert.equal(
+    AVW.GCP_JWKS_URL,
+    "https://www.googleapis.com/service_accounts/v1/metadata/jwk/signer@confidentialspace-sign.iam.gserviceaccount.com",
+  );
+  assert.equal(JSON.parse(wasm.plan(gcpDoc)).gcp_jwks_url, AVW.GCP_JWKS_URL, "page and verifier pin the same URL");
+  assert(requests.includes(AVW.GCP_JWKS_URL), requests.join(", "));
+  // Nothing Intel- or AMD-related is asked for, and nothing from the server
+  // but the attestation document.
+  assert(!requests.some((r) => /pccs|kdsintf/.test(r)), requests.join(", "));
+  assert.equal(requests.filter((r) => r.includes(GCP_HOST)).length, 1);
+});
+
+await test("gcp-cs: fails closed (keys unavailable, foreign keys, expiry, replay, unattested certificate)", async () => {
+  let r = await goGcp({ jwks: () => { throw new TypeError("Failed to fetch"); } });
+  assert.deepEqual(marks(r.output).filter((m) => m[0] === "-"), ["-evidence", "-ct_binding"], r.output.text);
+  assert.match(r.output.text, /Google's signing keys are not available: could not fetch https:\/\/www\.googleapis\.com/);
+
+  r = await goGcp({ jwks: () => new Response("nope", { status: 503 }) });
+  assert.match(r.output.text, /Google's signing keys are not available: .* answered HTTP 503/);
+  assert.equal(r.output.passed, false);
+
+  const testKeys = readFileSync(join(root, "verifier/testdata/gcp-cs/TEST-ONLY-signing-keys.json"), "utf8");
+  r = await goGcp({ jwks: () => new Response(testKeys, { status: 200 }) });
+  assert.deepEqual(marks(r.output).filter((m) => m[0] === "-"), ["-evidence", "-ct_binding"], r.output.text);
+
+  r = await goGcp({ jwks: () => new Response("x".repeat(70000), { status: 200 }) });
+  assert.match(r.output.text, /response too large/);
+
+  r = await goGcp({ now: GCP_NOW + 3600 * 1000 });
+  assert.match(r.output.text, /token is expired/);
+  assert.equal(r.output.passed, false);
+
+  r = await goGcp({ nonce: "07".repeat(32) });
+  assert.deepEqual(marks(r.output).filter((m) => m[0] === "-"), ["-nonce", "-report_data_claimed", "-ct_binding"]);
+
+  r = await goGcp({ ctKey: "c".repeat(64) });
+  assert.deepEqual(marks(r.output).filter((m) => m[0] === "-"), ["-ct_binding"], r.output.text);
+
+  // A TDX policy selected for a Confidential Space server.
+  r = await goGcp({ policy: policyToml });
+  assert.match(r.output.text, /server reports platform `gcp-cs`, policy requires `tdx`/);
+  assert.equal(r.output.passed, false);
+});
+
+// SEV-SNP. The built page knows AMD's roots only. The one real AMD-signed
+// report available (virtee/sev's Milan fixture) was made for somebody
+// else's report_data and has no HOST_DATA, so: the signature chain must
+// verify, and the run must FAIL on the bindings. A passing SNP run exists
+// only with the synthetic test chain, in `cargo test -p attested-vw-verify`.
+const snpReport = Buffer.from(readFileSync(join(root, "verifier/testdata/sev/report_milan.hex"), "utf8").trim(), "hex");
+const snpVcek = readFileSync(join(root, "verifier/testdata/sev/vcek_milan.der"));
+const synVcek = readFileSync(join(root, "verifier/testdata/sev-synthetic/vcek.der"));
+const SNP_HOST = "snp.fixture.example";
+const certTable = (vcek) => {
+  const head = Buffer.alloc(48);
+  Buffer.from("8d75da6364e66445adc5f4b93be8accd", "hex").copy(head);
+  head.writeUInt32LE(48, 16);
+  head.writeUInt32LE(vcek.length, 20);
+  return Buffer.concat([head, vcek]);
+};
+const snpPolicy = `schema = 1
+release = "snp-fixture"
+date = "2026-11-27"
+platform = "sev-snp"
+[sev_snp]
+measurement = "${snpReport.subarray(0x90, 0xc0).toString("hex")}"
+compose_binding = "host-data"
+host_data = "${"ab".repeat(32)}"
+allow_smt = true
+require_alias_check = false
+[sev_snp.min_tcb]
+bootloader = 0
+tee = 0
+snp = 0
+microcode = 0
+[[images]]
+service = "vaultwarden"
+image = "${image}"
+`;
+const snpDoc = (aux) => (nonce) =>
+  JSON.stringify({
+    version: 1,
+    platform: "sev-snp",
+    evidence: { quote: snpReport.toString("base64"), ...(aux ? { aux: aux.toString("base64") } : {}) },
+    nonce,
+    spki_sha256: KEY,
+    report_data_construction: 'SHA-512("attested-vaultwarden/v1" || nonce[32] || spki_sha256[32])',
+    app_compose: JSON.stringify({ docker_compose_file: `services:\n  vaultwarden:\n    image: ${image}\n` }),
+    image_digests: [{ service: "vaultwarden", image }],
+    timestamp: "2026-11-27T00:00:00Z",
+  });
+const kdsUrls = [];
+const goSnp = ({ aux, kds } = {}) => {
+  requests.length = 0;
+  kdsUrls.length = 0;
+  return AVW.run(
+    env(
+      platformNetwork({
+        host: SNP_HOST,
+        doc: snpDoc(aux),
+        ctKey: KEY,
+        routes: {
+          [AVW.AMD_KDS_PREFIX]: (url) => {
+            kdsUrls.push(url);
+            return kds(url);
+          },
+        },
+      }),
+      1800000000 * 1000,
+    ),
+    { host: SNP_HOST, policyToml: snpPolicy, knownSpkis: [] },
+  );
+};
+const bad = (out) => marks(out).filter((m) => m[0] === "-");
+const SNP_BINDING_FAILURES = ["-report_data_claimed", "-host_data", "-compose_hash", "-ct_binding"];
+
+await test("sev-snp: real AMD-signed report, VCEK fetched from AMD KDS by the page", async () => {
+  // Milan has no VCEK for this chip in the mock; Genoa answers. (For the
+  // real fixture it is the other way round; the order of tries is what is
+  // tested.) The chain is then found by the verifier, not by the URL.
+  const { input, output } = await goSnp({
+    kds: (url) => (url.includes("/Milan/") ? new Response("", { status: 404 }) : new Response(snpVcek, { status: 200 })),
+  });
+  assert(marks(output).includes("+evidence"), output.text);
+  assert.match(output.text, /AMD Milan ARK→ASK→VCEK→report signatures valid, VCEK bound to TCB\/chip/);
+  assert.match(output.text, /VCEK fetched by this page from AMD KDS/);
+  assert.deepEqual(bad(output), SNP_BINDING_FAILURES, output.text);
+  assert.equal(output.passed, false);
+  const hwid = snpReport.subarray(0x1a0, 0x1e0).toString("hex");
+  assert.deepEqual(kdsUrls, ["Milan", "Genoa"].map(
+    (p) => `https://kdsintf.amd.com/vcek/v1/${p}/${hwid}?blSPL=03&teeSPL=00&snpSPL=08&ucodeSPL=115`,
+  ));
+  assert.equal(Buffer.from(input.snp_vcek, "base64").compare(snpVcek), 0);
+  assert(!requests.some((r) => /pccs|googleapis/.test(r)), requests.join(", "));
+});
+
+await test("sev-snp: VCEK from the evidence's certificate table: no request to AMD", async () => {
+  const { input, output } = await goSnp({ aux: certTable(snpVcek), kds: () => assert.fail("KDS must not be asked") });
+  assert(marks(output).includes("+evidence"), output.text);
+  assert.match(output.text, /VCEK taken from the certificate table the server sent/);
+  assert.deepEqual(bad(output), SNP_BINDING_FAILURES, output.text);
+  assert.equal(input.snp_vcek, undefined);
+  assert.deepEqual(kdsUrls, []);
+});
+
+await test("sev-snp: fails closed (KDS has nothing, KDS blocked, non-AMD chain)", async () => {
+  let r = await goSnp({ kds: () => new Response("", { status: 404 }) });
+  assert.deepEqual(bad(r.output), ["-evidence", "-ct_binding"], r.output.text);
+  assert.match(r.output.text, /no VCEK certificate available for this report: the evidence carries no VCEK in its certificate table, and AMD KDS \(https:\/\/kdsintf\.amd\.com\/vcek\/v1\/\) gave no VCEK for this report \(Milan: HTTP 404; Genoa: HTTP 404\)/);
+
+  r = await goSnp({ kds: () => { throw new TypeError("Failed to fetch"); } });
+  assert.deepEqual(bad(r.output), ["-evidence", "-ct_binding"], r.output.text);
+  assert.match(r.output.text, /Milan: network error, or the browser blocked the request/);
+
+  r = await goSnp({ kds: () => new Response("", { status: 429 }) });
+  assert.match(r.output.text, /HTTP 429 \(rate limit; try again later\)/);
+
+  // The synthetic test chain (accepted only by the core's own unit tests)
+  // is refused by the built page, from KDS or from the certificate table.
+  r = await goSnp({ kds: () => new Response(synVcek, { status: 200 }) });
+  assert.deepEqual(bad(r.output), ["-evidence", "-ct_binding"], r.output.text);
+  assert.match(r.output.text, /VCEK is not signed by any built-in AMD root/);
+  r = await goSnp({ aux: certTable(synVcek), kds: () => assert.fail("KDS must not be asked") });
+  assert.match(r.output.text, /VCEK is not signed by any built-in AMD root/);
+  assert.equal(r.output.passed, false);
+});
+
 // Recorded live runs replay to exactly the recorded report.
 const dir = join(web, "testdata");
 for (const f of readdirSync(dir).filter((f) => /^live-.*\.json$/.test(f)).sort()) {

@@ -7,6 +7,16 @@
 //! asynchronous helper, Intel collateral assembly, which reuses dcap-qvl's
 //! own logic over the page's `fetch`.
 //!
+//! Trust material per platform ([`plan`] tells the page what to fetch):
+//!
+//! * `tdx`: Intel collateral from a PCCS mirror, Intel-signed, checked here.
+//! * `gcp-cs`: Google's JWKS, fetched live by the page from the URL pinned
+//!   in `attested_vw_common::gcp_cs::JWKS_URL`. It is the trust anchor, as
+//!   for the CLI, authenticated only by the browser's WebPKI TLS to Google.
+//! * `sev-snp`: the VCEK from the evidence's certificate table, else from
+//!   AMD KDS. Either way it must chain to the AMD roots built into the `sev`
+//!   crate and match the report, so neither source is trusted.
+//!
 //! Research prototype. See `web/README.md` for what a PASS here means and
 //! how it is weaker than the command-line verifier.
 
@@ -16,8 +26,11 @@ use std::collections::BTreeMap;
 
 use attested_vw_common::policy::Policy;
 use attested_vw_common::report_data::Nonce;
+use attested_vw_common::schema::{AttestationResponse, Platform};
 use attested_vw_verifier::report::{CheckId, Report};
-use attested_vw_verifier::{check_document_browser, ct, evidence, registry};
+use attested_vw_verifier::{check_document_browser, ct, evidence, registry, snp};
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD as B64;
 use serde::{Deserialize, Serialize};
 
 #[cfg(target_arch = "wasm32")]
@@ -44,6 +57,17 @@ pub struct Input {
     pub collateral: Option<String>,
     #[serde(default)]
     pub collateral_error: Option<String>,
+    /// `gcp-cs`: Google's JWKS as fetched from the pinned URL, or why not.
+    #[serde(default)]
+    pub gcp_jwks: Option<String>,
+    #[serde(default)]
+    pub gcp_jwks_error: Option<String>,
+    /// `sev-snp`: VCEK (DER, base64) fetched from AMD KDS, or why not. Only
+    /// used when the evidence's own certificate table has no VCEK.
+    #[serde(default)]
+    pub snp_vcek: Option<String>,
+    #[serde(default)]
+    pub snp_vcek_error: Option<String>,
     /// Cert Spotter responses.
     #[serde(default)]
     pub ct: CtInput,
@@ -138,16 +162,25 @@ fn run(input: &Input, report: &mut Report) -> Vec<ct::CtCert> {
         (None, Some(e)) => Err(e.clone()),
         (None, None) => Err("not fetched".to_owned()),
     };
+    let gcp_jwks = match (&input.gcp_jwks, &input.gcp_jwks_error) {
+        (Some(j), _) => Ok(j.clone()),
+        (None, Some(e)) => Err(e.clone()),
+        (None, None) => Err("not fetched".to_owned()),
+    };
     let ctx = evidence::Context {
         // Never in a browser: a mock "PASS" on a public page helps nobody.
         allow_insecure_mock: false,
         now_secs: input.now_secs,
         tdx_collateral,
-        snp_vcek_der: Err("SEV-SNP is not supported in the browser verifier".to_owned()),
-        gcp_jwks: Err(
-            "Confidential Space (gcp-cs) is not supported in the browser verifier yet".to_owned(),
-        ),
+        snp_vcek_der: snp_vcek(input, body, report),
+        gcp_jwks,
     };
+    if doc_platform(body) == Some(Platform::GcpCs) && input.gcp_jwks.is_some() {
+        report.note(format!(
+            "Google's token signing keys were fetched by this page from {} (the trust anchor on this platform; authenticated by the browser's TLS to Google only)",
+            attested_vw_common::gcp_cs::JWKS_URL
+        ));
+    }
     check_document_browser(body.as_bytes(), &nonce, &policy, &ctx, report);
 
     // Display only; the verdict is already determined by the checks.
@@ -187,6 +220,119 @@ fn run(input: &Input, report: &mut Report) -> Vec<ct::CtCert> {
     )
 }
 
+fn doc_platform(body: &str) -> Option<Platform> {
+    serde_json::from_str::<AttestationResponse>(body)
+        .ok()
+        .map(|d| d.platform)
+}
+
+/// The VCEK to judge an SNP report with: the one in the evidence's
+/// certificate table if there is one (as the CLI does), else the one the
+/// page fetched from AMD KDS. Its source does not matter for the verdict:
+/// `snp::verify_report` accepts it only if it chains to a built-in AMD root
+/// and matches the report's chip and TCB.
+fn snp_vcek(input: &Input, body: &str, report: &mut Report) -> Result<Vec<u8>, String> {
+    let doc = serde_json::from_str::<AttestationResponse>(body)
+        .ok()
+        .filter(|d| d.platform == Platform::SevSnp);
+    let Some(doc) = doc else {
+        return Err("not an SEV-SNP document".to_owned());
+    };
+    if let Some(v) = evidence::snp_aux_vcek(&doc.evidence) {
+        if v.len() > snp::MAX_VCEK_BYTES {
+            return Err("VCEK in the server's certificate table is too large".to_owned());
+        }
+        report.note("VCEK taken from the certificate table the server sent (checked against the built-in AMD roots)");
+        return Ok(v);
+    }
+    match (&input.snp_vcek, &input.snp_vcek_error) {
+        (Some(b64), _) => {
+            let v = B64
+                .decode(b64)
+                .map_err(|_| "internal error: fetched VCEK is not base64".to_owned())?;
+            if v.len() > snp::MAX_VCEK_BYTES {
+                return Err("VCEK from AMD KDS is too large".to_owned());
+            }
+            report.note(format!(
+                "VCEK fetched by this page from AMD KDS ({}) and checked against the built-in AMD roots",
+                snp::AMD_KDS_URL
+            ));
+            Ok(v)
+        }
+        (None, Some(e)) => Err(format!(
+            "the evidence carries no VCEK in its certificate table, and {e}"
+        )),
+        (None, None) => Err(
+            "the evidence carries no VCEK in its certificate table and none was fetched".to_owned(),
+        ),
+    }
+}
+
+/// What the page must fetch before [`verify`] can judge this document.
+#[derive(Debug, Default, Serialize, PartialEq, Eq)]
+pub struct Plan {
+    /// Platform the document claims (`""` if it does not parse; [`verify`]
+    /// then reports why).
+    pub platform: String,
+    /// `tdx`: Intel collateral is needed (`fetch_collateral`).
+    pub tdx_collateral: bool,
+    /// `gcp-cs`: the pinned JWKS URL to fetch.
+    pub gcp_jwks_url: Option<&'static str>,
+    /// `sev-snp` without a VCEK in the certificate table: AMD KDS URLs to
+    /// try in turn until one answers 200.
+    pub snp_vcek_urls: Vec<KdsUrl>,
+    /// `sev-snp`: why there is nothing to fetch although no VCEK came with
+    /// the evidence.
+    pub snp_vcek_error: Option<String>,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct KdsUrl {
+    pub product: &'static str,
+    pub url: String,
+}
+
+/// Decide which trust material the page fetches for `body`. Reads only the
+/// document's platform and (for SNP) the unsigned report bytes; every URL is
+/// a constant host. Nothing here affects the verdict: missing material is a
+/// failed evidence check in [`verify`].
+pub fn plan(body: &str) -> Plan {
+    let Ok(doc) = serde_json::from_str::<AttestationResponse>(body) else {
+        return Plan::default();
+    };
+    let mut plan = Plan {
+        platform: doc.platform.as_str().to_owned(),
+        ..Plan::default()
+    };
+    match doc.platform {
+        Platform::Tdx => plan.tdx_collateral = true,
+        Platform::GcpCs => plan.gcp_jwks_url = Some(attested_vw_common::gcp_cs::JWKS_URL),
+        Platform::SevSnp => {
+            if evidence::snp_aux_vcek(&doc.evidence).is_none() {
+                let urls = evidence::decode_quote(&doc.evidence)
+                    .map_err(|e| e.to_string())
+                    .and_then(|q| snp::kds_vcek_urls(snp::AMD_KDS_URL, &q));
+                match urls {
+                    Ok(u) => {
+                        plan.snp_vcek_urls = u
+                            .into_iter()
+                            .map(|(product, url)| KdsUrl { product, url })
+                            .collect();
+                    }
+                    Err(e) => plan.snp_vcek_error = Some(e),
+                }
+            }
+        }
+        Platform::Mock => {}
+    }
+    plan
+}
+
+/// [`plan`] as JSON.
+pub fn plan_json(body: &str) -> String {
+    serde_json::to_string(&plan(body)).unwrap_or_else(|_| "{}".to_owned())
+}
+
 /// JSON in, JSON out (see [`Input`], [`Output`]).
 pub fn verify_json(input: &str) -> String {
     let out = match serde_json::from_str::<Input>(input) {
@@ -203,9 +349,9 @@ fn error_json(msg: &str) -> String {
 /// The raw quote bytes inside an attestation document, for the collateral
 /// request (which needs the platform's FMSPC from the quote's PCK chain).
 pub fn quote_of(body: &str) -> Result<Vec<u8>, String> {
-    let doc: attested_vw_common::schema::AttestationResponse =
+    let doc: AttestationResponse =
         serde_json::from_str(body).map_err(|e| format!("attestation document is invalid: {e}"))?;
-    if doc.platform != attested_vw_common::schema::Platform::Tdx {
+    if doc.platform != Platform::Tdx {
         return Err(format!(
             "platform `{}` has no Intel collateral",
             doc.platform.as_str()

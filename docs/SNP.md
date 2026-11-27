@@ -14,7 +14,8 @@ What is and is not established:
 | Sidecar `ConfigfsTsm` provider | Tested against a fake directory with a scripted "kernel". Never run on a kernel with `sev_guest` |
 | `policy/measure/measure-snp.sh` | Written from the `sev-snp-measure` README. Never run against real OVMF/kernel inputs; never compared with a real report |
 | Guest image (OVMF + kernel + initrd that enforces `HOST_DATA`) | **Does not exist.** Requirements in §3.3 |
-| AMD KDS fetch | Untested live; Milan and Genoa only. Turin needs the VCEK from the certificate table |
+| AMD KDS fetch | Never run for a deployment. The URL format was checked once (2026-11-27) with the public Milan sample report: KDS returned its VCEK for the URL from `snp::kds_vcek_urls` (shared by the CLI and the page), requested by the browser page (KDS sends `Access-Control-Allow-Origin: *`); the CLI's own fetch was not run. Milan and Genoa only. Turin needs the VCEK from the certificate table |
+| Browser verifier (`web/`) | Same checks as the CLI through the wasm build; VCEK from the certificate table or KDS. Tested with the synthetic chain (core tests) and the public Milan sample (signature chain only). Never against a deployment |
 | Revocation (AMD CRL) | Not checked |
 
 ## 1. The problem

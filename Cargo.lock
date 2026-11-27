@@ -202,6 +202,7 @@ dependencies = [
  "anyhow",
  "attested-vw-common",
  "attested-vw-verify",
+ "base64 0.22.1",
  "dcap-qvl",
  "js-sys",
  "serde",

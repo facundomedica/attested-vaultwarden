@@ -8,6 +8,14 @@
 const AVW = (() => {
   const PCCS_URL = "https://pccs.phala.network";
   const CT_API = "https://api.certspotter.com/v1/issuances";
+  // Google Cloud Attestation's signing keys (gcp-cs). Must equal the URL
+  // pinned in the verifier (common/src/gcp_cs.rs); anything else is refused.
+  const GCP_JWKS_URL =
+    "https://www.googleapis.com/service_accounts/v1/metadata/jwk/signer@confidentialspace-sign.iam.gserviceaccount.com";
+  // AMD Key Distribution Service (sev-snp VCEK certificates).
+  const AMD_KDS_PREFIX = "https://kdsintf.amd.com/vcek/v1/";
+  const MAX_JWKS_BYTES = 64 * 1024;
+  const MAX_VCEK_BYTES = 16 * 1024;
   const ATTESTATION_PATH = "/.well-known/tee-attestation";
   const MAX_DOCUMENT_BYTES = 1 << 20;
   const MAX_CT_PAGES = 20;
@@ -81,6 +89,58 @@ const AVW = (() => {
     };
   }
 
+  // gcp-cs: Google's JWKS, live, from the pinned URL only. On this platform
+  // it is the trust anchor (nothing signs it), so: exact URL, no redirects.
+  async function fetchGcpJwks(env, url) {
+    if (url !== GCP_JWKS_URL) {
+      return { gcp_jwks_error: `refusing to fetch Google's signing keys from ${url}` };
+    }
+    try {
+      const r = await get(env, url, 30000, { redirect: "error" });
+      if (r.status !== 200) return { gcp_jwks_error: `${url} answered HTTP ${r.status}` };
+      const text = await r.text();
+      if (text.length > MAX_JWKS_BYTES) return { gcp_jwks_error: `${url}: response too large` };
+      return { gcp_jwks: text };
+    } catch (e) {
+      return {
+        gcp_jwks_error: `could not fetch ${url} (${e && e.name === "AbortError" ? "timed out" : "network error, or the browser blocked the request"})`,
+      };
+    }
+  }
+
+  // sev-snp: the VCEK from AMD KDS, when the server's evidence carries none.
+  // AMD signs it and the verifier checks it against the built-in AMD roots
+  // and the report, so KDS is trusted only to answer.
+  async function fetchSnpVcek(env, plan) {
+    if (plan.snp_vcek_error) return { snp_vcek_error: plan.snp_vcek_error };
+    const tried = [];
+    for (const { product, url } of plan.snp_vcek_urls) {
+      if (!String(url).startsWith(AMD_KDS_PREFIX)) {
+        return { snp_vcek_error: `refusing to fetch a VCEK from ${url}` };
+      }
+      try {
+        const r = await get(env, url, 30000, { redirect: "error" });
+        if (r.status !== 200) {
+          tried.push(`${product}: HTTP ${r.status}${r.status === 429 ? " (rate limit; try again later)" : ""}`);
+          continue;
+        }
+        const bytes = new Uint8Array(await r.arrayBuffer());
+        if (bytes.length > MAX_VCEK_BYTES) {
+          tried.push(`${product}: response too large`);
+          continue;
+        }
+        let bin = "";
+        for (const b of bytes) bin += String.fromCharCode(b);
+        return { snp_vcek: btoa(bin) };
+      } catch (e) {
+        tried.push(
+          `${product}: ${e && e.name === "AbortError" ? "timed out" : "network error, or the browser blocked the request"}`,
+        );
+      }
+    }
+    return { snp_vcek_error: `AMD KDS (${AMD_KDS_PREFIX}) gave no VCEK for this report (${tried.join("; ")})` };
+  }
+
   async function fetchCtPages(env, name) {
     const pages = [];
     let after = null;
@@ -145,15 +205,33 @@ const AVW = (() => {
     Object.assign(input, await fetchAttestation(env, host, nonce));
 
     if (input.body !== undefined) {
-      say("Fetching Intel collateral (via the Phala PCCS mirror) and the certificate list (Cert Spotter)…");
-      const collateral = env.wasm
-        .fetch_collateral(input.body, PCCS_URL, pccsFetcher(env))
-        .then(
+      // Which trust material this document needs is the verifier's call
+      // (wasm `plan`); this script only fetches it. Whatever is missing
+      // becomes a failed check there.
+      let plan = {};
+      try {
+        plan = JSON.parse(env.wasm.plan(input.body)) || {};
+      } catch (_) {
+        /* the verifier reports the unusable document */
+      }
+      let material = Promise.resolve({});
+      let what = "";
+      if (plan.tdx_collateral) {
+        what = "Intel collateral (via the Phala PCCS mirror) and ";
+        material = env.wasm.fetch_collateral(input.body, PCCS_URL, pccsFetcher(env)).then(
           (c) => ({ collateral: c }),
           (e) => ({ collateral_error: `from ${PCCS_URL}: ${(e && e.message) || e}` }),
         );
-      const [c, ct] = await Promise.all([collateral, fetchCt(env, host)]);
-      Object.assign(input, c);
+      } else if (plan.gcp_jwks_url) {
+        what = "Google's attestation signing keys and ";
+        material = fetchGcpJwks(env, plan.gcp_jwks_url);
+      } else if (plan.platform === "sev-snp" && ((plan.snp_vcek_urls || []).length || plan.snp_vcek_error)) {
+        what = "the VCEK certificate (AMD KDS) and ";
+        material = fetchSnpVcek(env, plan);
+      }
+      say(`Fetching ${what}the certificate list (Cert Spotter)…`);
+      const [m, ct] = await Promise.all([material, fetchCt(env, host)]);
+      Object.assign(input, m);
       input.ct = ct;
     }
 
@@ -374,7 +452,7 @@ const AVW = (() => {
     });
   }
 
-  return { run, lookupTags, startPage, PCCS_URL, CT_API };
+  return { run, lookupTags, startPage, PCCS_URL, CT_API, GCP_JWKS_URL, AMD_KDS_PREFIX };
 })();
 
 if (typeof document !== "undefined") {

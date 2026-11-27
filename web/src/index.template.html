@@ -75,7 +75,8 @@ mean "safe for your passwords". It checks less than the command-line verifier; r
 <a href="#limits">what this page cannot check</a>.</p>
 
 <p>Enter the domain of an Attested Vaultwarden server. This page asks it for a fresh hardware attestation
-and checks that the server is a genuine Intel TDX confidential VM running exactly the selected published
+and checks that the server is a genuine confidential VM (Intel TDX on dstack; experimentally Google Cloud
+Confidential Space and AMD SEV-SNP) running exactly the selected published
 release, and that every publicly logged TLS certificate for the name belongs to a key attested inside such
 a VM.</p>
 
@@ -102,7 +103,12 @@ a VM.</p>
 <ul>
   <li><strong>Hardware evidence.</strong> The Intel-signed TDX quote, against Intel's root certificate built
       into the verifier, with fresh Intel collateral (revocation lists, TCB info); TCB status as the release
-      policy requires; debug off.</li>
+      policy requires; debug off.
+      <em>Google Cloud Confidential Space releases:</em> there is no hardware quote to see. The evidence is
+      a token signed by Google's attestation service, checked against Google's signing keys, which this
+      page fetches from Google at each run; you trust Google's statement about the VM.
+      <em>AMD SEV-SNP releases (never run against a real deployment):</em> the AMD-signed report and its
+      VCEK certificate, against AMD's root certificates built into the verifier.</li>
   <li><strong>Freshness.</strong> The quote signs a random nonce this page generated a moment ago.</li>
   <li><strong>Software.</strong> Firmware and OS measurements equal the release policy; the runtime event
       log replays to the quoted RTMR3; the measured compose hash equals the policy and the SHA-256 of the
@@ -138,6 +144,9 @@ a VM.</p>
   <li><strong>Collateral comes from a mirror.</strong> Intel's own service does not allow requests from web
       pages, so collateral is fetched from Phala's PCCS mirror (pccs.phala.network). It is signed by Intel
       and verified here; the mirror is trusted only to be available and reasonably fresh.</li>
+  <li><strong>Confidential Space: Google's key list is taken on trust.</strong> Nothing signs the key list
+      itself; the page relies on the browser's TLS connection to googleapis.com, as the command-line
+      verifier relies on its own.</li>
   <li><strong>Who served you this page?</strong> Whoever controls the page controls the answer. Use a copy
       you built yourself or got from a source you trust; do not trust a copy served by the server being
       checked. The command-line verifier remains the reference.</li>
@@ -150,7 +159,10 @@ a VM.</p>
 <ul>
   <li>The domain you enter (<code>/.well-known/tee-attestation</code>), which must allow cross-origin
       reads; releases before 2026.11.3 do not, and fail here with a message saying so.</li>
-  <li><code>pccs.phala.network</code> for Intel collateral.</li>
+  <li><code>pccs.phala.network</code> for Intel collateral (TDX releases).</li>
+  <li><code>www.googleapis.com</code> for Google's attestation signing keys (Confidential Space releases).</li>
+  <li><code>kdsintf.amd.com</code> for the VCEK certificate (SEV-SNP releases, only if the server did not
+      send it).</li>
   <li><code>api.certspotter.com</code> for the certificate list (it learns the domain you check;
       unauthenticated requests are rate limited).</li>
   <li><code>hub.docker.com</code>, display only: to show which tags point at the pinned image digests.

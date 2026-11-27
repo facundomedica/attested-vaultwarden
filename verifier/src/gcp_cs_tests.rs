@@ -896,3 +896,102 @@ fn recorded_debug_image_token_fails_measurements_only() {
     // The debug image carries no support attributes at all.
     assert!(d.contains("support attributes are []"), "{d}");
 }
+
+// --- Browser mode (web/) on the recorded real token -------------------------
+
+fn run_live_browser(
+    doc: &[u8],
+    nonce: &Nonce,
+    jwks: Result<String, String>,
+    ct_key: &str,
+) -> Report {
+    let policy = Policy::from_toml(LIVE_POLICY).expect("committed policy parses");
+    let mut c = evidence::Context::mock(false);
+    c.now_secs = LIVE_IAT + 60;
+    c.gcp_jwks = jwks;
+    let mut report = Report::new("https://vault.gcp.facundo.dev");
+    check_document_browser(doc, nonce, &policy, &c, &mut report);
+    let page = vec![
+        json!([{
+            "id": "1", "dns_names": ["vault.gcp.facundo.dev"], "pubkey_sha256": ct_key,
+            "not_before": "2026-11-27T00:00:00Z", "not_after": "2027-02-25T00:00:00Z",
+            "issuer": {"friendly_name": "Test CA"},
+        }])
+        .to_string(),
+    ];
+    ct::check(
+        &ct::CtQuery {
+            host: "vault.gcp.facundo.dev",
+            exact_pages: &page,
+            parent_pages: Some(&["[]".to_owned()]),
+            now_secs: LIVE_IAT + 60,
+            known_spkis: &[],
+        },
+        &mut report,
+    );
+    report
+}
+
+#[test]
+fn recorded_live_token_in_browser_mode() {
+    let (nonce, spki) = live_inputs();
+    let key = spki.to_string();
+    let google = || Ok(GOOGLE_JWKS.to_owned());
+
+    let r = run_live_browser(LIVE_DOC.as_bytes(), &nonce, google(), &key);
+    assert!(r.passed() && r.browser_mode, "{r}");
+    assert_eq!(r.attested_spki.as_deref(), Some(key.as_str()));
+    let ids: Vec<CheckId> = r.checks.iter().map(|c| c.id).collect();
+    assert!(ids.contains(&CheckId::ReportDataClaimed) && ids.contains(&CheckId::CtBinding));
+    assert!(!ids.contains(&CheckId::SpkiBinding) && !ids.contains(&CheckId::ReportData));
+    assert!(
+        r.to_string()
+            .ends_with("PASS (browser mode: CT-based binding)"),
+        "{r}"
+    );
+
+    // A valid certificate with a key the token does not vouch for.
+    let r = run_live_browser(LIVE_DOC.as_bytes(), &nonce, google(), &"c".repeat(64));
+    assert_eq!(failed(&r), vec![CheckId::CtBinding], "{r}");
+
+    // The server names another TLS key than the one in the signed nonces.
+    let mut v: Value = serde_json::from_str(LIVE_DOC).unwrap();
+    v["spki_sha256"] = "c".repeat(64).into();
+    let r = run_live_browser(v.to_string().as_bytes(), &nonce, google(), &key);
+    assert_eq!(
+        failed(&r),
+        vec![CheckId::ReportDataClaimed, CheckId::CtBinding],
+        "{r}"
+    );
+    assert_eq!(r.attested_spki, None);
+
+    // Another nonce (replay of the recorded answer).
+    let r = run_live_browser(LIVE_DOC.as_bytes(), &Nonce([7; 32]), google(), &key);
+    assert_eq!(
+        failed(&r),
+        vec![
+            CheckId::Nonce,
+            CheckId::ReportDataClaimed,
+            CheckId::CtBinding
+        ],
+        "{r}"
+    );
+
+    // No key set (Google unreachable or blocked), or somebody else's keys.
+    let r = run_live_browser(LIVE_DOC.as_bytes(), &nonce, Err("blocked".into()), &key);
+    assert_eq!(
+        failed(&r),
+        vec![CheckId::Evidence, CheckId::CtBinding],
+        "{r}"
+    );
+    assert!(
+        r.to_string()
+            .contains("Google's signing keys are not available: blocked")
+    );
+    let r = run_live_browser(LIVE_DOC.as_bytes(), &nonce, Ok(jwks(&["test-key-1"])), &key);
+    assert_eq!(
+        failed(&r),
+        vec![CheckId::Evidence, CheckId::CtBinding],
+        "{r}"
+    );
+}

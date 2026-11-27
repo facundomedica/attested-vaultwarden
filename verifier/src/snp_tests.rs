@@ -519,3 +519,135 @@ fn vcek_from_certificate_table() {
     bad[24 + 20..24 + 24].copy_from_slice(&u32::MAX.to_le_bytes());
     assert!(snp_launch::vcek_from_cert_table(&bad).is_none());
 }
+
+// ---- browser mode (web/): the same evidence checks, CT instead of the
+// per-connection TLS key. Synthetic chain, so core tests only: the wasm
+// build knows no test root (see web/wasm/src/tests.rs).
+
+fn ct_page(host: &str, key: &str) -> Vec<String> {
+    vec![
+        serde_json::json!([{
+            "id": "1", "dns_names": [host], "pubkey_sha256": key,
+            "not_before": "2026-11-01T00:00:00Z", "not_after": "2027-03-01T00:00:00Z",
+            "issuer": {"friendly_name": "Test CA"},
+        }])
+        .to_string(),
+    ]
+}
+
+fn run_browser(f: &Fx, body: &[u8], vcek: Result<Vec<u8>, String>, ct_key: &str) -> Report {
+    let mut ctx = evidence::Context::mock(false);
+    ctx.now_secs = NOW;
+    ctx.snp_vcek_der = vcek;
+    let mut r = Report::new("https://snp.test");
+    check_document_browser(body, &f.nonce, &f.policy, &ctx, &mut r);
+    ct::check(
+        &ct::CtQuery {
+            host: "snp.test",
+            exact_pages: &ct_page("snp.test", ct_key),
+            parent_pages: None,
+            now_secs: NOW,
+            known_spkis: &[],
+        },
+        &mut r,
+    );
+    r
+}
+
+#[test]
+fn browser_mode_synthetic_deployment_passes_with_ct() {
+    let f = fx();
+    let body = doc(&f, &synth(&f, |_| {}), &f.app_compose);
+    let key = f.spki.to_string();
+    let r = run_browser(&f, &body, Ok(SYN_VCEK.to_vec()), &key);
+    assert!(failed(&r).is_empty(), "{r}");
+    assert!(r.passed() && r.browser_mode, "{r}");
+    assert_eq!(r.attested_spki.as_deref(), Some(key.as_str()));
+    let ids: Vec<CheckId> = r.checks.iter().map(|c| c.id).collect();
+    assert!(ids.contains(&CheckId::ReportDataClaimed) && ids.contains(&CheckId::HostData));
+    assert!(!ids.contains(&CheckId::SpkiBinding) && !ids.contains(&CheckId::ReportData));
+    assert!(
+        r.to_string()
+            .ends_with("PASS (browser mode: CT-based binding)"),
+        "{r}"
+    );
+}
+
+#[test]
+fn browser_mode_snp_failures() {
+    let f = fx();
+    let key = f.spki.to_string();
+    let honest = doc(&f, &synth(&f, |_| {}), &f.app_compose);
+
+    // A certificate with another key is logged for the name.
+    let r = run_browser(&f, &honest, Ok(SYN_VCEK.to_vec()), &"c".repeat(64));
+    assert_eq!(failed(&r), vec![CheckId::CtBinding], "{r}");
+
+    // The document names a TLS key the report was not made for (relay that
+    // swaps in its own key): report_data fails, no key counts as attested.
+    let mut v: serde_json::Value = serde_json::from_slice(&honest).unwrap();
+    v["spki_sha256"] = "c".repeat(64).into();
+    let r = run_browser(
+        &f,
+        &serde_json::to_vec(&v).unwrap(),
+        Ok(SYN_VCEK.to_vec()),
+        &key,
+    );
+    assert_eq!(
+        failed(&r),
+        vec![CheckId::ReportDataClaimed, CheckId::CtBinding],
+        "{r}"
+    );
+    assert_eq!(r.attested_spki, None);
+
+    // No VCEK (not in the evidence, KDS unreachable): evidence fails with
+    // the reason, and nothing after it can pass the run.
+    let r = run_browser(&f, &honest, Err("AMD KDS gave no VCEK".into()), &key);
+    assert_eq!(
+        failed(&r),
+        vec![CheckId::Evidence, CheckId::CtBinding],
+        "{r}"
+    );
+    assert!(r.to_string().contains("AMD KDS gave no VCEK"), "{r}");
+
+    // A VCEK that is AMD's but not this report's signer.
+    let r = run_browser(&f, &honest, Ok(REAL_VCEK.to_vec()), &key);
+    assert_eq!(
+        failed(&r),
+        vec![CheckId::Evidence, CheckId::CtBinding],
+        "{r}"
+    );
+
+    // HOST_DATA of another config: stays a failure in browser mode.
+    let other = doc(&f, &synth(&f, |r| r[OFF_HOST_DATA] ^= 1), &f.app_compose);
+    let r = run_browser(&f, &other, Ok(SYN_VCEK.to_vec()), &key);
+    assert_eq!(
+        failed(&r),
+        vec![CheckId::ComposeHash, CheckId::CtBinding],
+        "{r}"
+    );
+}
+
+#[test]
+fn kds_urls_for_a_report() {
+    let urls = snp::kds_vcek_urls(snp::AMD_KDS_URL, &real_report()).unwrap();
+    let hwid = hex::encode(&real_report()[0x1A0..0x1E0]);
+    assert_eq!(
+        urls,
+        vec![
+            (
+                "Milan",
+                format!(
+                    "https://kdsintf.amd.com/vcek/v1/Milan/{hwid}?blSPL=03&teeSPL=00&snpSPL=08&ucodeSPL=115"
+                )
+            ),
+            (
+                "Genoa",
+                format!(
+                    "https://kdsintf.amd.com/vcek/v1/Genoa/{hwid}?blSPL=03&teeSPL=00&snpSPL=08&ucodeSPL=115"
+                )
+            ),
+        ]
+    );
+    assert!(snp::kds_vcek_urls(snp::AMD_KDS_URL, &[0u8; 10]).is_err());
+}
