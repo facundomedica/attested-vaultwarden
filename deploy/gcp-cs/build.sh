@@ -36,9 +36,18 @@ git -C "$root" archive "$ref" | tar -x -C "$ctx"
 epoch="$(git -C "$root" log -1 --format=%ct "$ref")"
 commit="$(git -C "$root" rev-parse "$ref")"
 
+# Same pinned BuildKit builder as attest-sidecar/reproducible-build.sh: the
+# BuildKit version affects the output layout, so it is part of the recipe.
+BUILDKIT_IMAGE="docker.io/moby/buildkit:v0.29.0@sha256:0039c1d47e8748b5afea56f4e85f14febaf34452bd99d9552d2daa82262b5cc5"
+BUILDER=avw-repro
+if ! docker buildx inspect "$BUILDER" >/dev/null 2>&1; then
+  docker buildx create --name "$BUILDER" --driver docker-container \
+    --driver-opt "image=$BUILDKIT_IMAGE" >/dev/null
+fi
+
 build() { # <output tar> [extra buildx args]
   local dest="$1"; shift
-  docker buildx build "$@" \
+  docker buildx build --builder "$BUILDER" "$@" \
     --platform linux/amd64 \
     --provenance=false --sbom=false \
     --build-arg "SOURCE_DATE_EPOCH=${epoch}" \
