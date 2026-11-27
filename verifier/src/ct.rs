@@ -198,7 +198,15 @@ fn is_spki_hex(s: &str) -> bool {
 /// key attested now, or any valid certificate with a key that is neither
 /// attested now nor in `known_spkis`.
 pub fn check(q: &CtQuery<'_>, report: &mut Report) -> Vec<CtCert> {
-    match check_inner(q, report.attested_spki.as_deref()) {
+    // A key counts as attested only if every check before this one passed:
+    // a genuine TD running *other* software vouching for a key means nothing.
+    let attested = report
+        .checks
+        .iter()
+        .all(|c| c.passed)
+        .then_some(report.attested_spki.clone())
+        .flatten();
+    match check_inner(q, attested.as_deref()) {
         Ok((detail, certs)) => {
             report.pass(CheckId::CtBinding, detail);
             certs
@@ -305,7 +313,7 @@ fn check_inner(q: &CtQuery<'_>, attested: Option<&str>) -> Result<Outcome, Outco
     }
     let Some(attested) = attested else {
         return Err((
-            "the attestation checks did not establish an attested TLS key, so there is nothing to compare the logged certificates with".to_owned(),
+            "the attestation checks above did not all pass, so no TLS key counts as attested and there is nothing to compare the logged certificates with".to_owned(),
             certs,
         ));
     };
@@ -493,6 +501,27 @@ mod tests {
         // Even if every key is in the known list.
         let (r, _) = run(H, &exact, Some(&parent), None, &[A.to_owned()]);
         assert!(!r.checks[0].passed);
+    }
+
+    #[test]
+    fn earlier_failure_voids_the_attested_key() {
+        let exact = page(&[iss("1", &[H], A, LATER)]);
+        let mut r = Report::new(H);
+        r.browser_mode = true;
+        r.attested_spki = Some(A.to_owned());
+        r.fail(CheckId::ComposeHash, "different software");
+        let certs = check(
+            &CtQuery {
+                host: H,
+                exact_pages: &exact,
+                parent_pages: Some(&page(&[])),
+                now_secs: NOW,
+                known_spkis: &[],
+            },
+            &mut r,
+        );
+        assert!(!r.checks[1].passed);
+        assert_eq!(certs[0].status, CtStatus::NeverAttested);
     }
 
     #[test]
