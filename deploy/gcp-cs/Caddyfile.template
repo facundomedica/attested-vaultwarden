@@ -18,6 +18,7 @@ __DOMAIN__ {
 		}
 	}
 	handle /.well-known/tee-attestation {
+		header Access-Control-Allow-Origin "*"
 		reverse_proxy 127.0.0.1:8081
 	}
 	handle {
