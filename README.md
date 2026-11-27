@@ -23,7 +23,8 @@ code is answering them.
 > [!WARNING]
 > **Research prototype. Don't store real passwords on it.** It works and was
 > verified live, but it has not been audited, it has one open finding
-> ([below](#-known-issue)), and the demo server is usually switched off. The
+> ([below](#-known-issue)), and the live demo has been shut down (the recorded runs
+> are below). The
 > [threat model](docs/THREAT_MODEL.md) spells out exactly what is and isn't
 > protected.
 
@@ -142,7 +143,7 @@ Plain-language walkthrough of every check: [docs/VERIFY.md](docs/VERIFY.md).
 
 | Platform | Status |
 |---|---|
-| **Phala Cloud** (Intel TDX, dstack) | 🟢 **Run live**, four releases, PASS end to end. The main target. [Guide](docs/PHALA.md) |
+| **Phala Cloud** (Intel TDX, dstack) | 🟢 **Run live**, four releases, PASS end to end (demo VM since deleted). The main target. [Guide](docs/PHALA.md) |
 | **Google Cloud Confidential Space** (Intel TDX) | 🟡 **Run live once**, PASS, and FAIL on every negative test. Trusts Google's attestation service (Google is also the host); no storage survives a restart. [Guide](docs/GCP_CONFIDENTIAL_SPACE.md) |
 | **AMD SEV-SNP** (Servury Blackbox) | 🟠 **Built, never run on SNP hardware.** Reproducible guest image boot-tested in QEMU; verifier tested on AMD-signed samples. [Guide](docs/SNP.md), [Servury](docs/SNP_SERVURY.md) |
 | **Self-hosted dstack** (Intel TDX) | ⚪ Runbook only. [Guide](docs/SELF_HOSTING.md) |
@@ -231,7 +232,7 @@ says `PASS (INSECURE MOCK, proves nothing)` and exits 2.
 |---|---|
 | [**Overview and results**](docs/OVERVIEW.md): what was built, verified and left open | [Threat model](docs/THREAT_MODEL.md) |
 | [**How to verify**](docs/VERIFY.md): every check in plain language | [Architecture](docs/ARCHITECTURE.md) |
-| [**Deploy on Phala Cloud**](docs/PHALA.md) | [Decision log](docs/DECISIONS.md) (D-001 to D-055) |
+| [**Deploy on Phala Cloud**](docs/PHALA.md) | [Decision log](docs/DECISIONS.md) (D-001 to D-056) |
 | | [Related work](docs/RELATED_WORK.md) · [Keeper design option](docs/KEEPER.md) |
 
 ## 🤝 Security and license

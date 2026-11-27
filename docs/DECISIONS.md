@@ -1184,6 +1184,24 @@ Details: [SNP_SERVURY.md](SNP_SERVURY.md), [SNP.md](SNP.md) §3.5.
   on SNP hardware; no account, no purchase.** The example policy
   `policy/2026.11.0-sev-snp-servury-dev.example.toml` is marked unverified.
 
+### D-056 Phala demo CVM deleted (2026-11-27)
+
+The maintainer asked to "kill the phala project" after the repository went
+public. `phala cvms delete 8a1aa54c…` removed CVM `73eb5a7e…` (app ID
+`8a1aa54cc59424f894b82a5cad0d402b047ee0ab`) and its encrypted data disk.
+Consequences:
+
+* Releases `2026.11.2-phala-dev` and `2026.11.4-phala-dev` pin that app ID
+  and can no longer be run live. A new deployment gets a new app ID and
+  needs a new policy (`demo/live/bootstrap-policy.sh`).
+* The recorded outputs (`demo/`, `web/testdata/`) and every test are
+  unaffected; they never contact the CVM.
+* Not removed: the DNS records for the vault name and the GHCR sidecar
+  image.
+* K1 and the persistent-state precondition no longer apply to any running
+  deployment, but remain open for the design: they describe what any
+  dstack release so far would be exposed to.
+
 ---
 
 ## Open findings

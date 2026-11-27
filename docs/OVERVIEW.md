@@ -79,7 +79,7 @@ labelled so.
 
 | Platform | Status | Record |
 |----------|--------|--------|
-| Phala Cloud (dstack 0.6.5, Intel TDX, `tdx.small`) | **Live**, four releases, 2026-11-26 and 2026-11-27. Latest `2026.11.4-phala-dev`: PASS on `vault.example.com`. CVM stopped, not deleted | D-043, D-046, D-048, D-052 |
+| Phala Cloud (dstack 0.6.5, Intel TDX, `tdx.small`) | **Live**, four releases, 2026-11-26 and 2026-11-27. Latest `2026.11.4-phala-dev`: PASS on `vault.example.com`. CVM deleted on 2026-11-27 (D-056) | D-043, D-046, D-048, D-052 |
 | Google Cloud Confidential Space (TDX, `c3-standard-4`, image 261100) | **Live once**, 2026-11-27, about 18 minutes of VM time; PASS and three kinds of FAIL; VM deleted. No persistence | D-053, [GCP_CONFIDENTIAL_SPACE §10](GCP_CONFIDENTIAL_SPACE.md#10-live-test-2026-11-27) |
 | AMD SEV-SNP | **Never on SNP hardware.** Verifier and sidecar in code; reproducible guest image for Servury Blackbox, boot-tested in QEMU without SNP; expected measurement computed offline, never compared with a real report | D-050, D-055, [SNP.md](SNP.md), [SNP_SERVURY.md](SNP_SERVURY.md) |
 | Self-hosted dstack (TDX) | **Documented only**: runbook, never executed | [SELF_HOSTING.md](SELF_HOSTING.md) |
@@ -349,8 +349,9 @@ Exact values for `<sha256>` and `<os_image_hash>` are in
 [policy/README.md](../policy/README.md) and each
 `policy/*.reproduce.txt`.
 
-Against the live deployment (the CVM is stopped; its owner has to start
-it):
+Against a live deployment. The demo CVM was deleted on 2026-11-27
+(D-056), so these need a new deployment, which gets a new app ID and
+therefore a new policy:
 
 ```bash
 cargo run --release -p attested-vw-verify -- \
