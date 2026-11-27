@@ -1,0 +1,14 @@
+# TLS keys (SHA-256 of the SubjectPublicKeyInfo, hex) that a verifier PASS has
+# attested inside the VM, per host. Bundled into the page by web/build.sh.
+#
+# The page accepts a logged certificate if its key is the one attested during
+# the run or is listed here for the same host. Add a line each time the
+# server gets a new certificate key and a verifier run has attested it (the
+# CLI prints it as "leaf SPKI SHA-256 <hex>" on a PASS; the page prints it in
+# the report_data line). Without that, the page FAILS for as long as an older
+# certificate with an unlisted key remains valid (up to 90 days).
+#
+# Only add keys from a PASS you ran yourself or trust: every key listed here
+# is treated as living inside an attested VM.
+#
+# <host> <spki sha-256 hex> [# comment]

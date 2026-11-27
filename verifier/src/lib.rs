@@ -25,6 +25,7 @@ pub mod net;
 mod online;
 pub mod registry;
 pub mod report;
+#[cfg(feature = "snp")]
 pub mod snp;
 pub mod tdx;
 
@@ -281,6 +282,7 @@ fn check_document_inner(
             Some(got_compose)
         }
         evidence::Measured::Tdx(q) => check_tdx_measurements(q, &doc, policy, report),
+        #[cfg(feature = "snp")]
         evidence::Measured::Snp(r) => {
             match policy.sev_snp.as_ref() {
                 Some(sp) if hex_eq(&sp.measurement, &r.measurement) => report.pass(

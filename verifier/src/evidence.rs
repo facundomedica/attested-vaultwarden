@@ -9,7 +9,9 @@ use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as B64;
 use dcap_qvl::QuoteCollateralV3;
 
-use crate::{snp, tdx};
+#[cfg(feature = "snp")]
+use crate::snp;
+use crate::tdx;
 
 #[derive(Debug, thiserror::Error)]
 pub enum EvidenceError {
@@ -29,8 +31,13 @@ pub enum EvidenceError {
     NoVcek(String),
     #[error(transparent)]
     Tdx(#[from] tdx::TdxError),
+    #[cfg(feature = "snp")]
     #[error(transparent)]
     Snp(#[from] snp::SnpError),
+    #[error(
+        "SEV-SNP evidence is not supported by this build of the verifier (use the command-line verifier)"
+    )]
+    SnpUnsupported,
 }
 
 /// Inputs to evidence verification that do not come from the server.
@@ -62,6 +69,7 @@ impl Context {
 pub enum Measured {
     Mock,
     Tdx(Box<tdx::VerifiedQuote>),
+    #[cfg(feature = "snp")]
     Snp(snp::VerifiedReport),
 }
 
@@ -132,6 +140,9 @@ pub fn verify(
                 measured: Measured::Tdx(Box::new(v)),
             })
         }
+        #[cfg(not(feature = "snp"))]
+        Platform::SevSnp => Err(EvidenceError::SnpUnsupported),
+        #[cfg(feature = "snp")]
         Platform::SevSnp => {
             let sp = policy
                 .sev_snp

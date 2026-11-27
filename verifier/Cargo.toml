@@ -21,13 +21,15 @@ name = "record_collateral"
 required-features = ["cli"]
 
 [features]
-default = ["cli"]
+default = ["cli", "snp"]
 # Everything that touches the network or the OS: the TLS client, vendor
 # collateral fetches, the RNG and the command line. Without it the crate is
 # the pure, synchronous verification core (`check_document`,
 # `check_document_browser`, `ct`), which also builds for
 # wasm32-unknown-unknown (see web/).
 cli = [
+    "snp",
+    "dcap-qvl/report", # the collateral client (reqwest)
     "dep:bytes",
     "dep:clap",
     "dep:futures-util",
@@ -42,10 +44,15 @@ cli = [
     "dep:webpki-roots",
 ]
 
+# AMD SEV-SNP report verification (VirTEE `sev`). Off in the browser build:
+# there is no SNP deployment, and `sev` pulls RSA and an RNG. Without it an
+# SNP document fails the evidence check with a clear message.
+snp = ["dep:sev"]
+
 [dependencies]
 attested-vw-common.workspace = true
 base64.workspace = true
-dcap-qvl = { version = "0.7.1", default-features = false, features = ["std", "rustcrypto", "default-x509", "report"] }
+dcap-qvl = { version = "0.7.1", default-features = false, features = ["std", "rustcrypto", "default-x509"] }
 bytes = { version = "1", optional = true }
 clap = { workspace = true, optional = true }
 futures-util = { version = "0.3", default-features = false, features = ["alloc"], optional = true }
@@ -57,7 +64,7 @@ hyper-util = { version = "0.1", default-features = false, features = ["tokio"], 
 reqwest = { version = "0.13", default-features = false, features = ["rustls"], optional = true }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"], optional = true }
 serde.workspace = true
-sev = { version = "9.0.0", default-features = false, features = ["snp", "crypto_nossl"] }
+sev = { version = "9.0.0", default-features = false, features = ["snp", "crypto_nossl"], optional = true }
 sha2.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

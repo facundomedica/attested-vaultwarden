@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["common", "attest-sidecar", "verifier"]
+members = ["common", "attest-sidecar", "verifier", "web/wasm"]
 
 [workspace.package]
 version = "0.0.1"
@@ -35,3 +35,11 @@ panic = "warn"
 [profile.release]
 lto = "thin"
 codegen-units = 1
+
+# Browser verifier (web/build.sh): size over speed.
+[profile.wasm]
+inherits = "release"
+opt-level = "s"
+lto = true
+strip = true
+panic = "abort"

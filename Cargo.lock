@@ -194,6 +194,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "attested-vw-web"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "attested-vw-common",
+ "attested-vw-verify",
+ "dcap-qvl",
+ "js-sys",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -744,6 +759,7 @@ dependencies = [
  "der 0.8.3",
  "derive_more 2.1.1",
  "futures",
+ "getrandom 0.2.17",
  "hex",
  "log",
  "p256",
@@ -754,11 +770,14 @@ dependencies = [
  "scale-info",
  "serde",
  "serde-human-bytes",
+ "serde-wasm-bindgen",
  "serde_json",
  "sha2 0.11.2",
  "signature 3.0.0",
  "tracing",
  "urlencoding",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
  "x509-cert 0.3.1",
 ]
 
@@ -2731,6 +2750,17 @@ dependencies = [
  "base64 0.13.1",
  "hex",
  "serde",
+]
+
+[[package]]
+name = "serde-wasm-bindgen"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8302e169f0eddcc139c70f139d19d6467353af16f9fce27e8c30158036a1e16b"
+dependencies = [
+ "js-sys",
+ "serde",
+ "wasm-bindgen",
 ]
 
 [[package]]
