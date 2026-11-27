@@ -205,7 +205,7 @@ in the initrd with its SHA-256).
 Needs Docker (linux/amd64 emulation on an ARM Mac is fine) and git.
 
 ```sh
-deploy/sev-snp/build.sh snp.facundo.dev \
+deploy/sev-snp/build.sh snp.example.com \
     --ip '<ip>::<gateway>:<netmask>:avw:ens18:off' \
     --public-logs --check
 ```
@@ -245,7 +245,7 @@ The build downloads from Docker Hub, `snapshot.debian.org` and crates.io.
 ### 3.2 Reproducibility result
 
 Run on 2026-11-27 on an ARM Mac (Docker 29.4.0, BuildKit v0.29.0,
-linux/amd64 emulation), commit `0b975a6`, `snp.facundo.dev`,
+linux/amd64 emulation), commit `0b975a6`, `snp.example.com`,
 `ip=dhcp`, `--public-logs --check`. The second build ran with `--no-cache`
 (sidecar recompiled, packages downloaded again). Both gave:
 
@@ -266,7 +266,7 @@ registries still serving the pinned inputs).
 ### 3.3 Boot test without SNP
 
 ```sh
-deploy/sev-snp/build.sh snp.facundo.dev --public-logs --selftest --out deploy/sev-snp/.generated/selftest
+deploy/sev-snp/build.sh snp.example.com --public-logs --selftest --out deploy/sev-snp/.generated/selftest
 deploy/sev-snp/boot-test.sh deploy/sev-snp/.generated/selftest split
 deploy/sev-snp/boot-test.sh deploy/sev-snp/.generated/selftest uki
 deploy/sev-snp/boot-test.sh deploy/sev-snp/.generated/selftest tamper
@@ -304,8 +304,8 @@ their network, or certificate issuance.
 ## 4. Expected measurement
 
 ```sh
-deploy/sev-snp/measure.sh deploy/sev-snp/.generated/snp.facundo.dev
-deploy/sev-snp/measure.sh deploy/sev-snp/.generated/snp.facundo.dev --policy policy/<release>.toml
+deploy/sev-snp/measure.sh deploy/sev-snp/.generated/snp.example.com
+deploy/sev-snp/measure.sh deploy/sev-snp/.generated/snp.example.com --policy policy/<release>.toml
 ```
 
 The script downloads `OVMF.amdsev.fd` from Servury's release directory,
@@ -360,22 +360,22 @@ From the panel or `GET ?action=boot-image&id=<server>` note:
 ### 5.2 DNS (changes the zone)
 
 Pick a name that has never pointed anywhere else, for example
-`snp.facundo.dev`:
+`snp.example.com`:
 
-* `A snp.facundo.dev -> <the VM's IPv4>`, DNS only (not proxied), no AAAA.
+* `A snp.example.com -> <the VM's IPv4>`, DNS only (not proxied), no AAAA.
 * CAA on that name. The zone apex has `0 issuewild ";"` and no `issue`
   record, so without a set of its own the name inherits "any CA may issue a
   non-wildcard certificate". Recommended set:
 
   ```
-  snp.facundo.dev. CAA 0 issue "letsencrypt.org; validationmethods=tls-alpn-01"
-  snp.facundo.dev. CAA 0 issuewild ";"
+  snp.example.com. CAA 0 issue "letsencrypt.org; validationmethods=tls-alpn-01"
+  snp.example.com. CAA 0 issuewild ";"
   ```
 
   This restricts issuance to Let's Encrypt and to the challenge that only
   the holder of port 443 can answer. It **cannot** carry an `accounturi`:
   the ACME account is created in memory at every boot, so there is no
-  stable account to pin. Compared with `vault.facundo.dev` (which pins its
+  stable account to pin. Compared with `vault.example.com` (which pins its
   account) this is weaker: whoever controls the IP address or the route to
   it (Servury, their upstream) can obtain a certificate for the name from
   Let's Encrypt with an account of their own. Such a certificate has a
@@ -386,9 +386,9 @@ Pick a name that has never pointed anywhere else, for example
 ### 5.3 Build for the machine
 
 ```sh
-deploy/sev-snp/build.sh snp.facundo.dev \
+deploy/sev-snp/build.sh snp.example.com \
     --ip '<ipv4>::<gateway4>:<netmask>:avw:ens18:off' --public-logs --check
-deploy/sev-snp/measure.sh deploy/sev-snp/.generated/snp.facundo.dev --vcpus 2
+deploy/sev-snp/measure.sh deploy/sev-snp/.generated/snp.example.com --vcpus 2
 ```
 
 Take the address part of Servury's `suggested_cmdline` for `--ip`; the
@@ -452,7 +452,7 @@ lines about obtaining the certificate follow.
 ## 6. Checks on the first real report
 
 ```sh
-cargo run -p attested-vw-verify -- https://snp.facundo.dev \
+cargo run -p attested-vw-verify -- https://snp.example.com \
     --policy policy/<release>.toml --json > first-run.json
 ```
 
@@ -513,9 +513,9 @@ Confidential Space:
 
 ```sh
 nonce=$(openssl rand -hex 32)
-curl -s "https://snp.facundo.dev/.well-known/tee-attestation?nonce=$nonce" \
+curl -s "https://snp.example.com/.well-known/tee-attestation?nonce=$nonce" \
     > verifier/testdata/sev-servury/attestation.json
-openssl s_client -connect snp.facundo.dev:443 -servername snp.facundo.dev </dev/null 2>/dev/null \
+openssl s_client -connect snp.example.com:443 -servername snp.example.com </dev/null 2>/dev/null \
     | openssl x509 -outform der > verifier/testdata/sev-servury/leaf.der
 ```
 

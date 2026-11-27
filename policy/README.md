@@ -68,7 +68,7 @@ Notes on these files as historical records (they are not edited):
   record and that `caa-check` and `ct-check` both fail. The apex
   `issuewild ";"` was added later on 2026-11-27, and `caa-check.sh` has
   passed since
-  ([recorded](../demo/live/caa-check-vault.facundo.dev.expected.txt)). The
+  ([recorded](../demo/live/caa-check-vault.expected.txt)). The
   CT statement still holds, until 2027-01-31.
 * **Open finding that applies to every dstack release above** (found
   2026-11-27, after they were published): the policies pin image digests

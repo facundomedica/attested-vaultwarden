@@ -1,4 +1,4 @@
-# Release policy drafted 2026-11-27T10:54Z by demo/live/bootstrap-policy.sh from https://vault.facundo.dev.
+# Release policy drafted 2026-11-27T10:54Z by demo/live/bootstrap-policy.sh from https://vault.example.com.
 # MRTD/RTMR0-2 were observed from the live quote and INDEPENDENTLY REPRODUCED
 # with dstack-mr (built at dstack 350a0a73) from the published image
 # dstack-0.6.5.tar.gz (sha256 f33965e0…, os_image_hash 4771a29e…, GitHub
@@ -24,14 +24,14 @@
 # number observed at drafting time), tdx.mr_config_id (observed; version 3
 # form, 0x03 ‖ 32 bytes, which the verifier cannot recompute and therefore
 # pins by value).
-# DNS / WebPKI state at release time (DECISIONS D-052): vault.facundo.dev is
+# DNS / WebPKI state at release time (DECISIONS D-052): vault.example.com is
 # an A record with its own CAA set (issue letsencrypt.org, accounturi =
 # the in-CVM ACME account 4048885521, validationmethods=tls-alpn-01;
-# issuewild ";"). Cloudflare Universal SSL was turned off for facundo.dev
+# issuewild ";"). Cloudflare Universal SSL was turned off for example.com
 # on 2026-11-27, but 5 earlier Cloudflare wildcard certificates
-# (*.facundo.dev, keys held by Cloudflare) remain valid until they expire
+# (*.example.com, keys held by Cloudflare) remain valid until they expire
 # (about January 2027), and the zone apex has no CAA record, so wildcard
-# issuance for *.facundo.dev is not restricted (demo/live/caa-check-vault.facundo.dev.expected.txt,
+# issuance for *.example.com is not restricted (demo/live/caa-check-vault.expected.txt,
 # demo/live/ct-check.expected.txt: both FAIL for that reason).
 # Still not for real users: logs on (public_logs = true), SMT / dynamic
 # platform / cached keys accepted, and the persistent-state precondition of

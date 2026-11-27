@@ -640,7 +640,7 @@ CVM `0b862054-77c4-436f-bb58-6a1d77f68dbe`, app ID
 4. **Custom domain**: TXT must be `<app-id>:443` and the domain must be bound
    with `phala domains add`; without the binding the front proxy closes the
    connection after the ClientHello. With it, raw TLS reaches Caddy and Let's
-   Encrypt issued `CN=vault.facundo.dev` (issuer YE2) via TLS-ALPN-01 within
+   Encrypt issued `CN=vault.example.com` (issuer YE2) via TLS-ALPN-01 within
    a minute. Confirms D-009/D-039 on Phala.
 5. **New RTMR3 event `storage-encrypted`** (dstack 0.6.5): payload `1` if
    the data disk is LUKS-encrypted, `0` if not (dstack
@@ -652,7 +652,7 @@ CVM `0b862054-77c4-436f-bb58-6a1d77f68dbe`, app ID
    pre-launch script are byte-identical to our rendered files.
 7. **PCK flags** on this Phala host: SMT, dynamic platform and cached keys
    all set (as on the dstack fixture), TCB UpToDate.
-8. **Result**: `attested-vw-verify https://vault.facundo.dev --policy
+8. **Result**: `attested-vw-verify https://vault.example.com --policy
    policy/2026.11.0-phala-dev.toml` → PASS (all 11 checks); the live relay
    demo → FAIL on the TLS key binding (both attempts). Outputs in
    `demo/live/*.expected.txt`, `demo/relay/relay-live.expected.txt`.
@@ -667,7 +667,7 @@ After the live run the maintainer asked to stop the CVM and delete its disk:
 `phala cvms stop` then `phala cvms delete --yes` (deleting the CVM removes
 its data disk). Afterwards `phala cvms list` and `phala domains ls` are
 empty, so the domain binding went with the app. Left in place: the
-Cloudflare CNAME/TXT records for `vault.facundo.dev` (they point at the
+Cloudflare CNAME/TXT records for `vault.example.com` (they point at the
 gateway and a now-unbound app ID; a new deployment gets a new app ID, so the
 TXT value must be updated anyway), the private GHCR image, and the
 maintainer's read-only GHCR token in the gitignored `registry.env`.
@@ -771,15 +771,15 @@ and in the policy headers use the new IDs (e.g. the deployed sidecar
   a different `app_id` → FAIL. VM stopped afterwards (not deleted).
 * **CAA `accounturi` pinning is not possible on this domain.** The in-CVM
   account is `https://acme-v02.api.letsencrypt.org/acme/acct/4048885521`
-  (Caddy log). But `vault.facundo.dev` is a CNAME to the Phala gateway,
+  (Caddy log). But `vault.example.com` is a CNAME to the Phala gateway,
   which forbids other records at the name; CAA lookup follows the CNAME (no
-  CAA there) and climbs to `facundo.dev`, where a record would govern every
+  CAA there) and climbs to `example.com`, where a record would govern every
   other name of the zone. And it would not help: wildcard issuance for
-  `*.facundo.dev` follows `facundo.dev`'s CAA, and existing wildcards stay
+  `*.example.com` follows `example.com`'s CAA, and existing wildcards stay
   valid. *Later: done after all in D-052, by making the name an A record
   with its own CAA set and adding `issuewild ";"` at the apex.*
 * **CT check fixed to include wildcards.** Cert Spotter's exact-domain query
-  omits `*.parent` certificates. With them, `vault.facundo.dev` has 7
+  omits `*.parent` certificates. With them, `vault.example.com` has 7
   valid-for-name certificates; 5 are Cloudflare Universal SSL wildcards
   (Google Trust Services, Sectigo; keys held by Cloudflare) and were never
   attested, so `ct-check.sh` now exits 1
@@ -987,21 +987,21 @@ Design and sources: [GCP_CONFIDENTIAL_SPACE.md](GCP_CONFIDENTIAL_SPACE.md).
 * *Later: run live once on 2026-11-27 and torn down, D-053; those four
   points were confirmed there (GCP_CONFIDENTIAL_SPACE.md §10).*
 
-### D-052 facundo.dev: Pages off the Cloudflare proxy, Universal SSL off, CAA on the vault name; release 2026.11.4-phala-dev (2026-11-27)
+### D-052 example.com: Pages off the Cloudflare proxy, Universal SSL off, CAA on the vault name; release 2026.11.4-phala-dev (2026-11-27)
 
-Goal: stop certificates for `vault.facundo.dev` from existing outside the
+Goal: stop certificates for `vault.example.com` from existing outside the
 CVM (D-048: Cloudflare's Universal SSL wildcards cover the name).
 
-* **GitHub Pages moved to DNS only.** `facundo.dev` (Pages repository
+* **GitHub Pages moved to DNS only.** `example.com` (Pages repository
   `knowledgebase`, custom domain) was a proxied CNAME; it is now four A and
   four AAAA records to GitHub Pages, and `www` a CNAME to
-  `facundomedica.github.io`, all DNS only. GitHub issued its own Let's
-  Encrypt certificate for `facundo.dev` + `www.facundo.dev` (after removing
+  `<user>.github.io`, all DNS only. GitHub issued its own Let's
+  Encrypt certificate for `example.com` + `www.example.com` (after removing
   and re-adding the custom domain through the API; about a minute), and
   "enforce HTTPS" is on. `www` had been answering 526 behind Cloudflare and
   works again.
 * **Universal SSL turned off** for the zone, after the site served
-  GitHub's certificate. Cloudflare issues no further `*.facundo.dev`
+  GitHub's certificate. Cloudflare issues no further `*.example.com`
   certificates. The five existing wildcards are not affected by this in CT
   terms: they stay valid until they expire, the last on 2027-01-31, and
   `ct-check.sh` and the browser verifier keep failing until then.
@@ -1016,25 +1016,25 @@ CVM (D-048: Cloudflare's Universal SSL wildcards cover the name).
   certificates under it twice. Cloudflare's dashboard showed no warning and
   added no records of its own at `vault` or the apex (checked at the
   authoritative servers). **Not achieved:** `caa-check.sh` still FAILs,
-  because a wildcard `*.facundo.dev` is governed by the apex, which has no
+  because a wildcard `*.example.com` is governed by the apex, which has no
   CAA. An apex `issuewild ";"` would close that but also forbids wildcard
   certificates for every other name without its own set (`*.apps` exists
   in the zone); left for the owner to decide.
 * **Apex `issuewild ";"` added (2026-11-27, later the same day).** The
-  owner decided to add it: `facundo.dev. CAA 0 issuewild ";"`, the only
+  owner decided to add it: `example.com. CAA 0 issuewild ";"`, the only
   CAA record at the apex (no `issue` record, so exact-name issuance for
   the apex and for names without their own set is unchanged; the GitHub
   Pages site at the apex still serves). Cloudflare added no CAA records of
   its own (checked at the authoritative servers, 1.1.1.1 and 8.8.8.8).
   `caa-check.sh` now PASSes on both lines
-  (`demo/live/caa-check-vault.facundo.dev.expected.txt`). Cost: no CA may
+  (`demo/live/caa-check-vault.expected.txt`). Cost: no CA may
   issue a wildcard for any name of the zone without its own CAA set,
   `*.apps` included. **Remaining exposure:** only the five already-issued
   Cloudflare wildcard certificates, until they expire (the last on
   2027-01-31); and the operator still controls DNS, so can change or
   remove CAA, which is visible to anyone polling the records.
-* **`vault.warden.facundo.dev` abandoned.** The dedicated-parent layout
-  (CAA at `warden.facundo.dev`, D-048's suggestion) was set up, but Phala
+* **`vault.warden.example.com` abandoned.** The dedicated-parent layout
+  (CAA at `warden.example.com`, D-048's suggestion) was set up, but Phala
   did not route the two-label name (cause unknown). Its CNAME, TXT and the
   two CAA records at `warden` are still in the zone and harmless, as is
   the Phala domain binding.
@@ -1057,7 +1057,7 @@ CVM (D-048: Cloudflare's Universal SSL wildcards cover the name).
   removed the three old containers (serial log); smoke test clean. Browser
   verifier (merged from its branch, built at this tree): every line ✓
   except Certificate Transparency, in Node and in a real browser
-  (`web/testdata/live-2026-11-27-vault.facundo.dev.json`). Let's Encrypt
+  (`web/testdata/live-2026-11-27-phala.json`). Let's Encrypt
   budget for the name: 4 of 5 identical certificates used this week.
   CVM stopped afterwards (not deleted).
 
@@ -1072,7 +1072,7 @@ restart was confirmed. The instance was torn down; the GCP project
 `attested-vw-test-6976` was kept, with the workload image in its registry.
 The attestation route now sends the CORS header there too, and
 `ATTEST_GLOBAL_RATE_PER_SEC=4` from the integration stays. DNS leftovers of
-that test in `facundo.dev` (`vault.gcp` A record to a released address, two
+that test in `example.com` (`vault.gcp` A record to a released address, two
 CAA records at `gcp`) were to be deleted; see the open items of the
 2026-11-27 session if they are still present.
 

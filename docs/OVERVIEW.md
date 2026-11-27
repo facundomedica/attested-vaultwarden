@@ -79,7 +79,7 @@ labelled so.
 
 | Platform | Status | Record |
 |----------|--------|--------|
-| Phala Cloud (dstack 0.6.5, Intel TDX, `tdx.small`) | **Live**, four releases, 2026-11-26 and 2026-11-27. Latest `2026.11.4-phala-dev`: PASS on `vault.facundo.dev`. CVM stopped, not deleted | D-043, D-046, D-048, D-052 |
+| Phala Cloud (dstack 0.6.5, Intel TDX, `tdx.small`) | **Live**, four releases, 2026-11-26 and 2026-11-27. Latest `2026.11.4-phala-dev`: PASS on `vault.example.com`. CVM stopped, not deleted | D-043, D-046, D-048, D-052 |
 | Google Cloud Confidential Space (TDX, `c3-standard-4`, image 261100) | **Live once**, 2026-11-27, about 18 minutes of VM time; PASS and three kinds of FAIL; VM deleted. No persistence | D-053, [GCP_CONFIDENTIAL_SPACE §10](GCP_CONFIDENTIAL_SPACE.md#10-live-test-2026-11-27) |
 | AMD SEV-SNP | **Never on SNP hardware.** Verifier and sidecar in code; reproducible guest image for Servury Blackbox, boot-tested in QEMU without SNP; expected measurement computed offline, never compared with a real report | D-050, D-055, [SNP.md](SNP.md), [SNP_SERVURY.md](SNP_SERVURY.md) |
 | Self-hosted dstack (TDX) | **Documented only**: runbook, never executed | [SELF_HOSTING.md](SELF_HOSTING.md) |
@@ -94,10 +94,10 @@ CVM and app id (`8a1aa54c…`). All are development releases.
 | `2026.11.0-phala-dev` | 2026-11-26 | First deployment; logs off | PASS (11 checks); relay → FAIL; smoke test clean | [verify](../demo/live/verify.expected.txt), [relay](../demo/relay/relay-live.expected.txt), [smoke](../demo/live/smoke.expected.txt), [reproduce](../policy/2026.11.0-phala-dev.reproduce.txt) |
 | `2026.11.1-phala-dev` | 2026-11-26 | New CVM; logs on (which changes the compose hash) | PASS; tamper (`SIGNUPS_ALLOWED=true`) → FAIL on the compose hash; restore → PASS | [verify](../demo/live/verify-2026.11.1.expected.txt), [tamper](../demo/tamper/tamper.expected.txt), [reproduce](../policy/2026.11.1-phala-dev.reproduce.txt) |
 | `2026.11.2-phala-dev` | 2026-11-27 | Sidecar rebuilt; policy pins `app_id`, requires the encrypted-disk event | PASS; same policy with another `app_id` → FAIL | [verify](../demo/live/verify-2026.11.2.expected.txt), [reproduce](../policy/2026.11.2-phala-dev.reproduce.txt) |
-| `2026.11.4-phala-dev` | 2026-11-27 | TLS key and `config.json` on tmpfs; measured pre-launch cleanup; CORS for the browser verifier; pins `public_logs`, `min_tcb_eval_data_number`, `mr_config_id` | PASS; wrong `app_id` → FAIL; restart → PASS with a **different TLS key**; pre-launch cleanup seen in the serial log; browser verifier run | [verify](../demo/live/verify-2026.11.4.expected.txt), [after restart](../demo/live/verify-2026.11.4-after-restart.expected.txt), [reproduce](../policy/2026.11.4-phala-dev.reproduce.txt), [browser run](../web/testdata/live-2026-11-27-vault.facundo.dev.json) |
+| `2026.11.4-phala-dev` | 2026-11-27 | TLS key and `config.json` on tmpfs; measured pre-launch cleanup; CORS for the browser verifier; pins `public_logs`, `min_tcb_eval_data_number`, `mr_config_id` | PASS; wrong `app_id` → FAIL; restart → PASS with a **different TLS key**; pre-launch cleanup seen in the serial log; browser verifier run | [verify](../demo/live/verify-2026.11.4.expected.txt), [after restart](../demo/live/verify-2026.11.4-after-restart.expected.txt), [reproduce](../policy/2026.11.4-phala-dev.reproduce.txt), [browser run](../web/testdata/live-2026-11-27-phala.json) |
 
 There is no release numbered 2026.11.3 in `policy/` (it was prepared for
-`vault.warden.facundo.dev`, which Phala never routed, and never published).
+`vault.warden.example.com`, which Phala never routed, and never published).
 The first published release whose attestation route sends a CORS header,
 and so the first a browser can verify, is 2026.11.4.
 
@@ -131,11 +131,11 @@ were not edited; their recorded outputs are from the verifier of that day
 
 ### 3.5 Domain-level checks (DNS, CAA, Certificate Transparency)
 
-| Check | State for `vault.facundo.dev` | Recorded |
+| Check | State for `vault.example.com` | Recorded |
 |-------|-------------------------------|----------|
-| CAA (`demo/live/caa-check.sh`) | **PASS** since 2026-11-27: the name has its own set (Let's Encrypt, the in-CVM ACME account, TLS-ALPN-01, no wildcard) and the apex has `issuewild ";"` | [caa-check-vault.facundo.dev.expected.txt](../demo/live/caa-check-vault.facundo.dev.expected.txt) |
-| CT (`demo/live/ct-check.sh`) | **FAIL until 2027-01-31**: 8 certificates valid for the name, 3 with attested keys, 5 Cloudflare Universal SSL wildcards (`*.facundo.dev`) whose keys Cloudflare holds. Universal SSL is off for the zone since 2026-11-27, so no new ones; the old ones run out | [ct-check.expected.txt](../demo/live/ct-check.expected.txt) |
-| Browser verifier | Every line ✓ except Certificate Transparency, so **FAIL**, for the same five certificates. No browser-mode overall PASS has been observed on any real deployment | [recorded run](../web/testdata/live-2026-11-27-vault.facundo.dev.json), [web/README.md](../web/README.md) |
+| CAA (`demo/live/caa-check.sh`) | **PASS** since 2026-11-27: the name has its own set (Let's Encrypt, the in-CVM ACME account, TLS-ALPN-01, no wildcard) and the apex has `issuewild ";"` | [caa-check-vault.expected.txt](../demo/live/caa-check-vault.expected.txt) |
+| CT (`demo/live/ct-check.sh`) | **FAIL until 2027-01-31**: 8 certificates valid for the name, 3 with attested keys, 5 Cloudflare Universal SSL wildcards (`*.example.com`) whose keys Cloudflare holds. Universal SSL is off for the zone since 2026-11-27, so no new ones; the old ones run out | [ct-check.expected.txt](../demo/live/ct-check.expected.txt) |
+| Browser verifier | Every line ✓ except Certificate Transparency, so **FAIL**, for the same five certificates. No browser-mode overall PASS has been observed on any real deployment | [recorded run](../web/testdata/live-2026-11-27-phala.json), [web/README.md](../web/README.md) |
 
 A note on one historical record: the header of
 `policy/2026.11.4-phala-dev.toml` says the apex has no CAA record and that
@@ -156,7 +156,7 @@ survives a restart, and a crashed process reboots the whole VM. The trust
 statement is different in kind: the verifier sees a token signed by
 Google, who also runs the host, and no hardware quote
 ([GCP_CONFIDENTIAL_SPACE §5](GCP_CONFIDENTIAL_SPACE.md#5-trust-what-a-pass-means-here)).
-The VM behind the test name `vault.gcp.facundo.dev` was deleted; nothing
+The VM behind the test name `vault.gcp.example.com` was deleted; nothing
 is served there.
 
 ### 3.7 SEV-SNP (no hardware)
@@ -216,7 +216,7 @@ was internal; nobody outside the project has audited the code.
 
 | What | What happened | Why dropped | Record |
 |------|---------------|-------------|--------|
-| `vault.warden.facundo.dev`: a dedicated parent label so that CAA and wildcards could be pinned one level below the zone | DNS, CAA and the Phala binding were set up; Phala reported the domain verified, but connections never reached the CVM | Phala did not route a name two labels below the zone; cause unknown, not confirmed with Phala. The plain name got its own CAA set instead | D-052, [PHALA.md §5](PHALA.md#5-bind-the-domain-and-publish-dns), [caa-check record](../demo/live/caa-check.expected.txt) |
+| `vault.warden.example.com`: a dedicated parent label so that CAA and wildcards could be pinned one level below the zone | DNS, CAA and the Phala binding were set up; Phala reported the domain verified, but connections never reached the CVM | Phala did not route a name two labels below the zone; cause unknown, not confirmed with Phala. The plain name got its own CAA set instead | D-052, [PHALA.md §5](PHALA.md#5-bind-the-domain-and-publish-dns), [caa-check record](../demo/live/caa-check.expected.txt) |
 | "Keeper": vault in memory only, handed between VMs after mutual attestation | Designed in full and compared with the alternatives | Complexity out of proportion; turns a confidentiality assumption into a risk of losing the vault; no data-preserving upgrade; does not remove the precondition (image store, ACME key) | D-054, [KEEPER.md](KEEPER.md) |
 | dstack on-chain KMS with a compose-hash allowlist | Identified as the most direct fix for the precondition on Phala | Not adopted: not evaluated against the contracts, and it moves trust to the contract's governance. It remains the first thing to evaluate (§7.2) | D-054, [KEEPER.md §2](KEEPER.md#2-the-options-side-by-side) |
 | Self-hosted TDX on rented bare metal | Researched; runbook written | Cost (around €600/month plus a setup fee); Phala chosen for the live runs | D-036 |
@@ -229,7 +229,7 @@ DNS leftovers of abandoned experiments, still in the zone on 2026-11-27
 `warden` (D-052) are harmless. The `vault.gcp` A record still points at
 the released GCP address `34.178.235.11` (CAA at `gcp` allows any Let's
 Encrypt account): whoever is assigned that address could obtain a valid
-certificate for `vault.gcp.facundo.dev`. It is not a name any release
+certificate for `vault.gcp.example.com`. It is not a name any release
 uses, but it should be deleted.
 
 ## 6. What a PASS is worth today
@@ -354,10 +354,10 @@ it):
 
 ```bash
 cargo run --release -p attested-vw-verify -- \
-  https://vault.facundo.dev --policy policy/2026.11.4-phala-dev.toml      # expect PASS, exit 0
-demo/relay/relay-live.sh vault.facundo.dev policy/2026.11.4-phala-dev.toml   # expect FAIL, exit 1
-demo/live/caa-check.sh vault.facundo.dev https://acme-v02.api.letsencrypt.org/acme/acct/4048885521   # expect PASS
-demo/live/ct-check.sh vault.facundo.dev                                   # expect exit 1 until 2027-01-31
+  https://vault.example.com --policy policy/2026.11.4-phala-dev.toml      # expect PASS, exit 0
+demo/relay/relay-live.sh vault.example.com policy/2026.11.4-phala-dev.toml   # expect FAIL, exit 1
+demo/live/caa-check.sh vault.example.com https://acme-v02.api.letsencrypt.org/acme/acct/4048885521   # expect PASS
+demo/live/ct-check.sh vault.example.com                                   # expect exit 1 until 2027-01-31
 ```
 
 The TLS key in a new PASS will differ from the recorded ones: 2026.11.4

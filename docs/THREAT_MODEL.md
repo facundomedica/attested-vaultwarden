@@ -201,18 +201,18 @@ evidence shows that history. What exists today:
   detectably, even before anyone is served by it. The check includes
   wildcard certificates for the parent domain (`*.parent` covers the
   name). **The demo domain fails it until about the end of January
-  2027:** `facundo.dev` was behind Cloudflare, whose Universal SSL wildcard
-  `*.facundo.dev` certificates (keys held by Cloudflare) are valid for
-  `vault.facundo.dev` (`demo/live/ct-check.expected.txt`, 5 certificates
+  2027:** `example.com` was behind Cloudflare, whose Universal SSL wildcard
+  `*.example.com` certificates (keys held by Cloudflare) are valid for
+  `vault.example.com` (`demo/live/ct-check.expected.txt`, 5 certificates
   never attested). Universal SSL was turned off for the zone on 2026-11-27
   (D-052); the existing wildcards expire by 2027-01-31. The per-connection
   verifier still catches a server using them. CAA: the name is now an A
   record with its own CAA set (Let's Encrypt, the in-CVM account,
   TLS-ALPN-01 only, no wildcard), which stops other CAs and other accounts
   for the exact name. A wildcard for the parent follows the parent's CAA
-  set: the apex of `facundo.dev` has `issuewild ";"` since 2026-11-27, so
-  no new `*.facundo.dev` may be issued
-  (`demo/live/caa-check-vault.facundo.dev.expected.txt` passes on both
+  set: the apex of `example.com` has `issuewild ";"` since 2026-11-27, so
+  no new `*.example.com` may be issued
+  (`demo/live/caa-check-vault.expected.txt` passes on both
   lines). Two further limits: the ACME account key is on the persistent
   disk (§1), so whoever can boot another compose under the app id can copy
   it and issue from outside under the same `accounturi`; and the operator

@@ -157,10 +157,10 @@ each run rather than carrying a copy:
 If the material cannot be fetched (service down, rate limit, request
 blocked), the "Hardware evidence" line fails and says why.
 
-On the demo domain `vault.facundo.dev` the page currently ends in FAIL with
+On the demo domain `vault.example.com` the page currently ends in FAIL with
 every line ✓ except the Certificate Transparency line: Cloudflare wildcard
-certificates for `*.facundo.dev`, issued before 2026-11-27, remain valid
-until 2027-01-31 (recorded run: `web/testdata/live-2026-11-27-vault.facundo.dev.json`).
+certificates for `*.example.com`, issued before 2026-11-27, remain valid
+until 2027-01-31 (recorded run: `web/testdata/live-2026-11-27-phala.json`).
 That is the correct outcome, not a bug: someone outside the VM holds keys
 that browsers accept for the name.
 

@@ -1,9 +1,9 @@
 # Release policy for the first live Google Cloud Confidential Space test
-# (2026-11-27, https://vault.gcp.facundo.dev, project attested-vw-test-6976,
+# (2026-11-27, https://vault.gcp.example.com, project attested-vw-test-6976,
 # europe-west4-a, c3-standard-4, Intel TDX, production `confidential-space`
 # image family: confidential-space-261100).
 #
-# Workload image: deploy/gcp-cs/build.sh vault.gcp.facundo.dev at commit
+# Workload image: deploy/gcp-cs/build.sh vault.gcp.example.com at commit
 # 9ba7038 with LOG_REDIRECT=always (development: container logs reach Cloud
 # Logging and the serial console) and the Let's Encrypt production directory.
 # One build on one machine; reproducibility of the digest was not checked.

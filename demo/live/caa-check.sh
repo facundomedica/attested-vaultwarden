@@ -3,7 +3,7 @@
 # obtain a certificate for the name?
 #
 #   demo/live/caa-check.sh <name> <accounturi>
-#   e.g. caa-check.sh vault.warden.facundo.dev \
+#   e.g. caa-check.sh vault.warden.example.com \
 #          https://acme-v02.api.letsencrypt.org/acme/acct/4048885521
 #
 # Before issuing, a CA looks up the "relevant CAA record set" (RFC 8659 §3):
@@ -15,7 +15,7 @@
 # parameters to an issuer's property; Let's Encrypt enforces both.
 #
 # If the name is an A/AAAA record it can hold its own CAA set, which then
-# governs the exact name (vault.facundo.dev since 2026-11-27); wildcards of
+# governs the exact name (vault.example.com since 2026-11-27); wildcards of
 # the parent are still governed by the parent's set, and are checked too.
 #
 # Why the parent, when the name is a CNAME. The service name is a CNAME to the hosting gateway, and a

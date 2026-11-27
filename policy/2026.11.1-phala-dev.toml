@@ -1,4 +1,4 @@
-# Release policy drafted 2026-11-26T19:40Z by demo/live/bootstrap-policy.sh from https://vault.facundo.dev.
+# Release policy drafted 2026-11-26T19:40Z by demo/live/bootstrap-policy.sh from https://vault.example.com.
 # MRTD/RTMR0-2 were observed from the live quote and INDEPENDENTLY REPRODUCED
 # with dstack-mr (built at dstack 350a0a73) from the published image
 # dstack-0.6.5.tar.gz (sha256 f33965e0…, os_image_hash 4771a29e…, GitHub

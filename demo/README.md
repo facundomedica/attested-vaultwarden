@@ -1,5 +1,10 @@
 # Demos
 
+> Hostnames in the documentation are written as `example.com`. Recorded
+> outputs, measured compose documents and test fixtures keep the names that
+> were actually used, because the name is part of what was measured and
+> signed; editing them would break the hashes they are checked against.
+
 | Demo | Where | What must happen |
 |------|-------|------------------|
 | `deploy/local/e2e.sh` | local, INSECURE mock | honest → exit 2 (mock never PASS); relay → ✗ TLS key binding; wrong compose hash → ✗ |
@@ -16,7 +21,7 @@ Recorded live outputs (2026-11-26, Phala Cloud): `live/smoke.expected.txt`,
 `live/verify-2026.11.4.expected.txt` and `live/verify-2026.11.4-after-restart.expected.txt`
 (2026-11-27; same release before and after a CVM restart, different TLS key),
 `live/ct-check.expected.txt` (2026-11-27, exit 1: Cloudflare wildcards until 2027-01-31),
-`live/caa-check-vault.facundo.dev.expected.txt` (2026-11-27, exit 0: the name's own set passes,
+`live/caa-check-vault.expected.txt` (2026-11-27, exit 0: the name's own set passes,
 and the apex `issuewild ";"` forbids wildcards),
 `relay/relay-live.expected.txt` (release 2026.11.0), `tamper/tamper.expected.txt`
 (release 2026.11.1).
@@ -25,10 +30,10 @@ From the one Google Cloud Confidential Space run (2026-11-27, VM since
 deleted, [docs/GCP_CONFIDENTIAL_SPACE.md](../docs/GCP_CONFIDENTIAL_SPACE.md) §10):
 `live/verify-gcp-cs.expected.txt` (PASS), `relay/relay-live-gcp-cs.expected.txt` (FAIL).
 
-From the abandoned name `vault.warden.facundo.dev` (Phala did not route it,
+From the abandoned name `vault.warden.example.com` (Phala did not route it,
 DECISIONS D-052; nothing was ever served there): `live/caa-check.expected.txt`
 (the CAA layout with a dedicated parent label, exit 0) and
-`live/ct-check-vault.warden.facundo.dev.expected.txt` (no certificate logged,
+`live/ct-check-warden.expected.txt` (no certificate logged,
 exit 0). They show the scripts on that layout, not a deployment.
 
 A summary of all results with dates: [docs/OVERVIEW.md](../docs/OVERVIEW.md) §3.

@@ -67,7 +67,7 @@ copied into the zone and must be updated if Phala moves it). The demo name
 has `issue "letsencrypt.org; accounturi=…/acct/4048885521;
 validationmethods=tls-alpn-01"` and `issuewild ";"`; Caddy renewed under it.
 A wildcard `*.parent` also covers the name, and its issuance follows the
-*parent's* CAA set, so the parent needs one too. `facundo.dev` has
+*parent's* CAA set, so the parent needs one too. `example.com` has
 `issuewild ";"` at its apex since 2026-11-27 (it also forbids wildcard
 certificates for every other name of the zone without its own CAA set),
 and `demo/live/caa-check.sh` passes on both lines. In every case the DNS
@@ -78,7 +78,7 @@ CT monitoring is implemented: `demo/live/ct-check.sh` checks that every
 logged certificate valid for the name, including `*.parent` wildcards, has
 an attested key (Cert Spotter's `pubkey_sha256` against the SPKI hashes in
 verifier PASS outputs). It is a script run by hand, not a monitor. On
-`vault.facundo.dev` it fails until 2027-01-31: Cloudflare's `*.facundo.dev`
+`vault.example.com` it fails until 2027-01-31: Cloudflare's `*.example.com`
 certificates, issued before Universal SSL was turned off for the zone
 (D-048, D-052).
 

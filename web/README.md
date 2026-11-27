@@ -265,7 +265,7 @@ What was run, on macOS arm64, rustc 1.97.1, wasm-bindgen 0.2.130, node 22:
   `api.certspotter.com` answers 200, `hub.docker.com` is blocked (no CORS),
   as the page expects.
 * A run against a name that does not answer
-  (`vault.facundo.dev` before the deployment was up) gives one
+  (`vault.example.com` before the deployment was up) gives one
   `✗ Fetch attestation: could not reach …` line and FAIL.
 
 ### Confidential Space and SEV-SNP in the page (2026-11-27)
@@ -288,7 +288,7 @@ Run on macOS arm64, rustc 1.97.1, wasm-bindgen 0.2.130, node 22:
     Cert Spotter. Every attestation line ✓ ("RS256 signature valid under
     Google key 1be6ff72…"). The run ends in **FAIL on the Certificate
     Transparency line**: three Let's Encrypt certificates are valid for
-    `vault.gcp.facundo.dev`, one with the attested key `a08c741c…` and two
+    `vault.gcp.example.com`, one with the attested key `a08c741c…` and two
     with keys of the earlier boots of that test (`c29d9cf7…`, `f67ea472…`),
     which are not in `attested-spkis.txt`. That is the check working as
     designed, not a PASS.
@@ -317,14 +317,14 @@ Not tested:
 
 ### Live run against a real deployment (TDX): done, ends in FAIL on the CT line
 
-Run on 2026-11-27 against `https://vault.facundo.dev` (release
+Run on 2026-11-27 against `https://vault.example.com` (release
 `2026.11.4-phala-dev`, dstack on Intel TDX), in Node and in a real browser,
-and recorded in `testdata/live-2026-11-27-vault.facundo.dev.json`, which
+and recorded in `testdata/live-2026-11-27-phala.json`, which
 both test suites replay offline. Every line is ✓ (fetch through the CORS
 header, nonce, Intel DCAP quote and collateral, `report_data`, measurements,
 RTMR3 replay) **except Certificate Transparency**, so the overall result is
 FAIL. That is the expected outcome on this domain, not a bug: Cloudflare
-wildcard certificates for `*.facundo.dev`, issued before 2026-11-27 with
+wildcard certificates for `*.example.com`, issued before 2026-11-27 with
 keys held outside the VM, stay valid until 2027-01-31
 ([docs/VERIFY.md](../docs/VERIFY.md), DECISIONS D-052). **No browser-mode
 overall PASS has been observed on a real TDX deployment**, and none can be
@@ -336,10 +336,10 @@ To repeat it against a running server whose policy is in `policy/`:
 web/build.sh
 # 1. the endpoint must be readable cross-origin:
 curl -s -D - -o /dev/null -H 'Origin: https://example.org' \
-  "https://vault.facundo.dev/.well-known/tee-attestation?nonce=$(openssl rand -hex 32)" \
+  "https://vault.example.com/.well-known/tee-attestation?nonce=$(openssl rand -hex 32)" \
   | grep -i access-control-allow-origin
 # 2. headless, real network (Node does not enforce CORS, hence step 1):
-node web/test/run.mjs --live vault.facundo.dev \
+node web/test/run.mjs --live vault.example.com \
   --record web/testdata/live-<date>-<host>.json
 # 3. the recording now replays offline in both suites:
 node web/test/run.mjs && cargo test -p attested-vw-web

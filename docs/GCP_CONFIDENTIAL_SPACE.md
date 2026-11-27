@@ -608,7 +608,7 @@ sidecar's own limit of 2 per second).
   container, authenticated with a short-lived access token in a temporary
   auth file, not with `gcloud auth configure-docker`.
 * The service account also got `roles/logging.logWriter`.
-* DNS: the `CAA` records were put on `gcp.facundo.dev` (covering names
+* DNS: the `CAA` records were put on `gcp.example.com` (covering names
   below it), with `issuewild ";"`.
 * CORS: `/.well-known/tee-attestation` answers
   `Access-Control-Allow-Origin: *` on GET; an OPTIONS preflight gets 405
