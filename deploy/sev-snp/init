@@ -112,8 +112,10 @@ if [ "$(cat "$C/logs")" = console ]; then out=/dev/console; else out=/dev/null; 
 
 # Each service gets exactly the environment in its .env file (generated from
 # app-compose.json at build time; KEY=VALUE words, never evaluated).
-su -s /bin/sh vaultwarden -c "exec env -i $(cat "$C/vaultwarden.env") /vaultwarden" >"$out" 2>&1 &
-su -s /bin/sh caddy -c "exec env -i $(cat "$C/proxy.env") /usr/local/bin/caddy run --config $C/Caddyfile --adapter caddyfile" >"$out" 2>&1 &
+vw_env="$(tr '\n' ' ' < "$C/vaultwarden.env")"
+proxy_env="$(tr '\n' ' ' < "$C/proxy.env")"
+su -s /bin/sh vaultwarden -c "exec env -i $vw_env /vaultwarden" >"$out" 2>&1 &
+su -s /bin/sh caddy -c "exec env -i $proxy_env /usr/local/bin/caddy run --config $C/Caddyfile --adapter caddyfile" >"$out" 2>&1 &
 # The sidecar stays root: configfs-tsm and Caddy's 0600 certificate files
 # are root-only. Its start-up messages always reach the console: they say
 # whether an SNP report is available and contain no user data.
