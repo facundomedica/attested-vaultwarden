@@ -8,7 +8,7 @@
 //!
 //! | Variable | Meaning |
 //! |----------|---------|
-//! | `ATTEST_PLATFORM` | `mock` (INSECURE), `dstack`, `sev-snp` (configfs-tsm; untested on hardware) or `gcp-cs` (never run on GCP) |
+//! | `ATTEST_PLATFORM` | `mock` (INSECURE), `dstack`, `sev-snp` (configfs-tsm; untested on hardware) or `gcp-cs` (run live once, 2026-11-27) |
 //! | `ATTEST_INSECURE_MOCK` | must be `1` for `mock` to start |
 //! | `ATTEST_LISTEN` | listen address, default `0.0.0.0:8081` |
 //! | `ATTEST_CERT_PATH` | PEM file whose first certificate is the TLS leaf |

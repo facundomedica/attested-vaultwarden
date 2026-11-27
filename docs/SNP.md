@@ -111,7 +111,9 @@ only into the Shielded VM vTPM, which the host hypervisor runs
 ([attestation overview][gcp-att]); it is outside the SNP trust boundary.
 For this project that means: the claim "this compose runs" would rest on
 Google's vTPM, i.e. on the cloud operator the design is meant not to trust.
-Confidential Space is being evaluated separately in this repository.
+Confidential Space, which is not SNP (TDX in our run) and gives a
+Google-signed token rather than a report, is a separate platform in this
+repository ([GCP_CONFIDENTIAL_SPACE.md](GCP_CONFIDENTIAL_SPACE.md)).
 
 ### (c) Azure
 

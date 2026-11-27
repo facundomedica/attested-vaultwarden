@@ -5,6 +5,13 @@ with its source and the date it was checked. Decisions that need the
 maintainer's review are marked **OPEN**. The M0 recommendations (D-001,
 D-004, D-005, D-008, D-010) were accepted on 2026-11-26.
 
+Entries are kept as written on their day: a later entry supersedes an
+earlier one, and the earlier text is not rewritten. Where an old entry now
+reads as a contradiction of the current state, a line starting *Later:*
+points at the entry that changed it. For the current state in one place see
+[OVERVIEW.md](OVERVIEW.md); for open findings, the end of this file and
+[THREAT_MODEL.md §7](THREAT_MODEL.md#7-known-issues).
+
 Pinned source abbreviations (all checked 2026-11-26):
 
 * **D** = <https://github.com/Dstack-TEE/dstack/blob/v0.6.6/> (commit `c873038`, released 2026-11-20)
@@ -154,7 +161,7 @@ See [ARCHITECTURE.md §2](ARCHITECTURE.md). Facts:
   (<https://docs.phala.com/phala-cloud/networking/domain-attestation>).
 
 UNCONFIRMED, to test in M3: TLS-ALPN-01 (`acme-tls/1`) through gateway SNI
-passthrough.
+passthrough. *Later: confirmed live on Phala, D-043.*
 
 ### D-010 RTMR3 replay implementation (accepted: option b)
 No crates.io crate replays dstack's RTMR3: `cc-eventlog` (which has
@@ -342,7 +349,9 @@ Keeps the proxy configuration inside the measured compose document. Docker
 Compose supports inline `content` configs (used here with Compose v5.1.1).
 **UNCONFIRMED** that dstack's compose runner supports it; check in M3,
 fallback: `command:` with the config passed inline, or a config baked into a
-digest-pinned image.
+digest-pinned image. *Later: works on dstack 0.6.5 (every live Phala
+release embeds the Caddyfile this way, D-043). One consequence found live:
+compose keeps a container when only the inline content changes, D-049.*
 
 ### D-023 Sidecar runs as uid 0 with no capabilities
 It must read Caddy's certificate store, written by Caddy running as root.
@@ -432,6 +441,8 @@ check.
   unsupported; live KDS fetch untested (no SNP host). Binding the compose
   document to the SNP launch measurement is not designed yet, so the SNP
   path **always FAILs** the event-log/compose checks today, by design.
+  *Later: bindings designed and implemented in D-050 (`HOST_DATA`) and
+  D-055 (measured command line); still never run on SNP hardware.*
 
 ### D-030 Dependency advisories accepted with justification
 `RUSTSEC-2023-0071` (rsa 0.9, Marvin) and `RUSTSEC-2026-0387` (crypto-bigint
@@ -461,7 +472,8 @@ RTMR3 `key-provider` event); `tpm` → vTPM seed, which on a self-hosted QEMU
 host is host-emulated and therefore excluded; `kms` → dstack KMS.
 Plan: first live run with `none` (data loss on restart, said loudly), then
 `local` if the rented host has SGX. The policy pins the exact `key-provider`
-payload either way.
+payload either way. *Later: no self-hosted run took place; the live runs
+were on Phala Cloud with its KMS (D-036, D-040, D-043).*
 
 ### D-033 app-compose for dstack
 `deploy/dstack/render.sh` writes the same manifest-v2 structure as
@@ -500,7 +512,14 @@ Uses a dedicated `docker-container` buildx builder with BuildKit pinned
 cannot export OCI archives. **Result 2026-11-26:** two clean arm64 builds of
 commit `d81a855` gave the same digest
 `sha256:495d22d097c0d5b88def4f8aa2a6a811021cba3616a046eee9ea5993c64dd545`.
-amd64: see the addendum below (checked later the same day).
+amd64: see the addendum (checked later the same day).
+
+**Addendum (2026-11-26, written during the M3 Phala work).** amd64
+reproducibility confirmed: two clean `linux/amd64` builds (under emulation)
+of commit `a25547a` gave
+`sha256:02f03ab9d9ec65c7366ee4a770401f92be8e4e9160cc5f350fcfc6482cfd3f28`.
+`publish.sh` pushes with OCI media types so the registry digest matches
+`reproducible-build.sh`.
 
 ### D-036 Host choice for the first live run. **Resolved: Phala Cloud** (below)
 Research 2026-11-26 (sources in SELF_HOSTING §1): rentable bare-metal TDX
@@ -513,6 +532,9 @@ match for the SEV-SNP stretch target (configfs-tsm + sev-snp-measure).
 Cheaper TDX alternative: dstack's `dstack-cloud` on a GCP C3 confidential VM
 (the dstack guest runs as the cloud CVM; different firmware measurements and
 a vTPM half that GetQuote does not carry).
+*Later: the Servury offering was read again for D-055; the plans seen then
+were $4.99 and $9.99 per month (SNP_SERVURY.md §1). An image for it was
+built, never booted there.*
 
 ---
 
@@ -567,13 +589,6 @@ Phala publishes no per-size MRTD/RTMR tables; they depend on the image plus
 `VmConfig`). Plan: compute with `dstack-mr` from the OS image Phala runs and
 the CVM's `vm_config`. If a first run takes values from the live quote, the
 policy file and docs must say so and must not claim C2 for that release.
-
-### D-035 addendum
-amd64 reproducibility confirmed 2026-11-26: two clean `linux/amd64` builds
-(under emulation) of commit `a25547a` gave
-`sha256:02f03ab9d9ec65c7366ee4a770401f92be8e4e9160cc5f350fcfc6482cfd3f28`.
-`publish.sh` pushes with OCI media types so the registry digest matches
-`reproducible-build.sh`.
 
 ### D-042 Private sidecar image on Phala (maintainer's choice, 2026-11-26)
 The maintainer kept the GHCR package private. Facts (dstack
@@ -757,7 +772,8 @@ and in the policy headers use the new IDs (e.g. the deployed sidecar
   CAA there) and climbs to `facundo.dev`, where a record would govern every
   other name of the zone. And it would not help: wildcard issuance for
   `*.facundo.dev` follows `facundo.dev`'s CAA, and existing wildcards stay
-  valid.
+  valid. *Later: done after all in D-052, by making the name an A record
+  with its own CAA set and adding `issuewild ";"` at the apex.*
 * **CT check fixed to include wildcards.** Cert Spotter's exact-domain query
   omits `*.parent` certificates. With them, `vault.facundo.dev` has 7
   valid-for-name certificates; 5 are Cloudflare Universal SSL wildcards
@@ -808,7 +824,8 @@ closed, each with a regression test. Choices that were not forced:
   Justification: the measured dstack OS refuses to boot when a non-zero
   MRCONFIGID disagrees with the compose hash, app id and key provider it
   measured, and the verifier checks those three directly. TODO: pin
-  `mr_config_id` in the next policy from the observed value.
+  `mr_config_id` in the next policy from the observed value. *Later: done
+  in 2026.11.4 (version 3 form, pinned by value), D-052.*
 * **RTMR3 is the exact dstack boot sequence** (D-010, D-028 tightened):
   `system-preparing, app-id, compose-hash, [gpu-policy-hash], instance-id,
   boot-mr-done, {[os-image-hash], key-provider}, storage-fs,
@@ -831,7 +848,8 @@ closed, each with a regression test. Choices that were not forced:
   improvement is the retry only. Verification fails closed either way.
 
 **Template for 2026.11.4** (`deploy/dstack/docker-compose.template.yml`;
-not deployed, no policy yet):
+not deployed, no policy yet; *later: deployed as release
+2026.11.4-phala-dev on 2026-11-27, D-052*):
 
 * `caddy_certs`, a tmpfs-backed named volume (`driver_opts: type=tmpfs`),
   mounted at `/data/caddy/certificates` in `proxy` and read-only at
@@ -889,6 +907,10 @@ not deployed, no policy yet):
   sourced; old containers with a restart policy run from daemon start
   until the script removes them; whether dstack rewrites
   `docker-compose.yaml` in its work directory on every boot.
+  *Later (D-052): ran on Phala for 2026.11.4; the daemon was up and the
+  serial log shows the old containers removed. The other two points were
+  not looked at. The script does not touch the image store: see "Open
+  findings" at the end of this file.*
 
 ### D-050 SEV-SNP: compose bound through HOST_DATA; verified in code, never run on hardware (2026-11-27)
 
@@ -901,6 +923,8 @@ Design and sources: [SNP.md](SNP.md).
   differs; that is a review obligation on the image the policy pins
   (SNP.md §3.3). The image does not exist yet. `HOST_DATA` is not trusted
   when the measurement or launch-policy check failed, and all zero fails.
+  *Later: D-055 adds a second mode, `measured-cmdline`, with an image;
+  there is still no image for `host-data`.*
 * **Mandatory pins, no opt-outs** (as D-049 for TDX): `measurement`,
   `min_tcb`, `compose_binding`, `host_data`. Defaults are the strict ones
   (`allowed_vmpl = [0]`, `allow_smt = false`, `require_alias_check = true`).
@@ -956,6 +980,8 @@ Design and sources: [GCP_CONFIDENTIAL_SPACE.md](GCP_CONFIDENTIAL_SPACE.md).
   small supervisor; `deploy/gcp-cs/deploy.sh` prints commands and runs
   nothing. Unconfirmed until a live run: socket path, nonce order, the
   shape of the `tdx` claim, networking.
+* *Later: run live once on 2026-11-27 and torn down, D-053; those four
+  points were confirmed there (GCP_CONFIDENTIAL_SPACE.md §10).*
 
 ### D-052 facundo.dev: Pages off the Cloudflare proxy, Universal SSL off, CAA on the vault name; release 2026.11.4-phala-dev (2026-11-27)
 
@@ -1153,3 +1179,22 @@ Details: [SNP_SERVURY.md](SNP_SERVURY.md), [SNP.md](SNP.md) §3.5.
   firmware (downloaded, hash as published, not rebuilt). **Nothing was run
   on SNP hardware; no account, no purchase.** The example policy
   `policy/2026.11.0-sev-snp-servury-dev.example.toml` is marked unverified.
+
+---
+
+## Open findings
+
+Not decisions: things found and not yet fixed. The description of record is
+[THREAT_MODEL.md §7](THREAT_MODEL.md#7-known-issues).
+
+* **K1 Image store on the persistent disk (found 2026-11-27, OPEN).**
+  Docker's image store is on the data disk; Docker checks digests on pull
+  and trusts images already present locally. A compose nobody published,
+  run once under the same app id, can alter stored image layers, and the
+  next boot of the published compose runs them under the correct digest
+  with a verifier PASS. Affects every dstack release so far (2026.11.0 to
+  2026.11.4). Planned fix, not deployed: the measured pre-launch script
+  (D-049) also removes all local images at boot, so every image is pulled
+  again and digest-checked; slower boot, and a new release because the
+  script is measured. D-049 option 3 and D-054 ("the image store ...
+  deserves its own check") had named the gap without closing it.

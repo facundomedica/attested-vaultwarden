@@ -18,8 +18,23 @@ Recorded live outputs (2026-11-26, Phala Cloud): `live/smoke.expected.txt`,
 `live/ct-check.expected.txt` (2026-11-27, exit 1: Cloudflare wildcards until 2027-01-31),
 `live/caa-check-vault.facundo.dev.expected.txt` (2026-11-27, exit 0: the name's own set passes,
 and the apex `issuewild ";"` forbids wildcards),
-`relay/relay-live.expected.txt`, `tamper/tamper.expected.txt`.
-They are verbatim; the relay transcript was recorded by an earlier verifier
+`relay/relay-live.expected.txt` (release 2026.11.0), `tamper/tamper.expected.txt`
+(release 2026.11.1).
+
+From the one Google Cloud Confidential Space run (2026-11-27, VM since
+deleted, [docs/GCP_CONFIDENTIAL_SPACE.md](../docs/GCP_CONFIDENTIAL_SPACE.md) §10):
+`live/verify-gcp-cs.expected.txt` (PASS), `relay/relay-live-gcp-cs.expected.txt` (FAIL).
+
+From the abandoned name `vault.warden.facundo.dev` (Phala did not route it,
+DECISIONS D-052; nothing was ever served there): `live/caa-check.expected.txt`
+(the CAA layout with a dedicated parent label, exit 0) and
+`live/ct-check-vault.warden.facundo.dev.expected.txt` (no certificate logged,
+exit 0). They show the scripts on that layout, not a deployment.
+
+A summary of all results with dates: [docs/OVERVIEW.md](../docs/OVERVIEW.md) §3.
+
+They are verbatim; the first two releases' outputs come from the verifier
+of their day (their policies no longer load, `policy/README.md`); the relay transcript was recorded by an earlier verifier
 build whose measurements line read "match the published OS image" before
 that had been reproduced (the current verifier says "equal the values
 pinned by release …"; reproduction is in `policy/*.reproduce.txt`).

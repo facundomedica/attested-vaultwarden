@@ -24,6 +24,14 @@ Delete the CVM when done.
   root public key>"}`), and the policy pins it.
 * The data disk persists across restarts (LUKS, key from the KMS), but has
   no rollback protection (THREAT_MODEL R6).
+* The disk key follows the **app id**, not the compose hash: any compose
+  you deploy under the same app gets the same disk. A verifier cannot see
+  what earlier composes left there, so create a fresh app for a release
+  others should rely on and never deploy anything unpublished to it
+  (THREAT_MODEL §1). This includes Docker's image store: an image already
+  on the disk is not re-checked against its digest (open finding,
+  [THREAT_MODEL §7](THREAT_MODEL.md#7-known-issues); the planned fix,
+  removing local images in the pre-launch script, is not in any release).
 
 ## 1. Publish the sidecar image (you)
 

@@ -7,7 +7,7 @@ every detail of each system.
 
 | System | TEE | What is attested | Who verifies, how | TLS bound to TEE? | Open |
 |--------|-----|------------------|-------------------|-------------------|------|
-| **This project** | Intel TDX via dstack (SEV-SNP verifier side) | Unmodified Vaultwarden + proxy + sidecar: compose hash, image digests, OS measurements, config pins | Anyone, with a standalone CLI, on demand | Yes: nonce + leaf SPKI in `report_data`, fetched on the same TLS connection | Yes |
+| **This project** | Intel TDX via dstack (run live); Confidential Space (one live run, Google-signed token); SEV-SNP (code only, never on hardware) | Unmodified Vaultwarden + proxy + sidecar: compose hash, image digests, OS measurements, config pins | Anyone, with a standalone CLI, on demand | Yes: nonce + leaf SPKI in `report_data`, fetched on the same TLS connection | Yes |
 | 1Password confidential computing | AWS Nitro Enclaves | 1Password's own enclave services; releases signed and logged in a transparency log | 1Password clients, automatically | Per their design (client ↔ enclave) | No |
 | Signal SVR2 / SVR3 | SGX, Nitro, SEV-SNP (SVR3 across several) | PIN-protected secret recovery | Signal clients, automatically | Attested channel to the enclave | Yes |
 | matter-labs/teepot | SGX (Gramine), TDX tooling | HashiCorp Vault and secret release | Clients/workloads requesting secrets | Attestation drives secret release | Yes (archived 2026-06) |

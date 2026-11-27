@@ -26,8 +26,8 @@ A policy pins:
   mode, D-055; there `host_data` is optional and absent means "must be
   zero");
   `min_tcb.fmc` is needed for reports that carry an FMC SVN;
-* Confidential Space (D-051; implemented, never run on GCP; trusts Google's
-  attestation service; no persistence): `hwmodel`, `restart_policy` and
+* Confidential Space (D-051; run live once on 2026-11-27 and torn down,
+  D-053; trusts Google's attestation service; no persistence): `hwmodel`, `restart_policy` and
   exactly one digest-pinned image are **mandatory**
   ([docs/GCP_CONFIDENTIAL_SPACE.md](../docs/GCP_CONFIDENTIAL_SPACE.md));
 * optionally `mr_config_id`, `mr_owner`, `mr_owner_config` (unset: zero, or
@@ -49,13 +49,35 @@ not running published software.
 | `2026.11.0-phala-dev` | Phala Cloud, TDX, `tdx.small`, dstack 0.6.5 | off | reproduced with `dstack-mr` ([transcript](2026.11.0-phala-dev.reproduce.txt)) | PASS; relay demo FAIL (D-043). **No longer accepted by the verifier** (no `app_id`, D-049) |
 | `2026.11.1-phala-dev` | same | on | same values as 2026.11.0 (same image and VM shape) | PASS; tamper demo FAIL then PASS (D-046). **No longer accepted by the verifier** (no `app_id`, D-049) |
 | `2026.11.2-phala-dev` | same | on | same values, reproduced again ([transcript](2026.11.2-phala-dev.reproduce.txt)) | PASS; first with `app_id` pinned and encrypted disk required; wrong `app_id` → FAIL (D-048) |
-| `2026.11.4-phala-dev` | same (same CVM and app id) | on | same values, reproduced again ([transcript](2026.11.4-phala-dev.reproduce.txt)) | PASS; fresh TLS key per boot confirmed (restart → PASS with a different SPKI); wrong `app_id` → FAIL; pins `public_logs`, `min_tcb_eval_data_number`, `mr_config_id`; CAA on the name; CT and CAA wildcard checks still FAIL for the domain (D-052) |
-
+| `2026.11.4-phala-dev` | same (same CVM and app id) | on | same values, reproduced again ([transcript](2026.11.4-phala-dev.reproduce.txt)) | PASS; fresh TLS key per boot confirmed (restart → PASS with a different SPKI); wrong `app_id` → FAIL; pins `public_logs`, `min_tcb_eval_data_number`, `mr_config_id`; CAA on the name. The CAA check passes since the apex record was added later that day; the CT check fails until 2027-01-31 (D-052) |
 | `2026.11.0-gcp-cs-dev` | Google Cloud Confidential Space, TDX, `c3-standard-4`, image 261100 | on | none: Google's token names the image version, nothing is reproduced ([doc](../docs/GCP_CONFIDENTIAL_SPACE.md)) | PASS; wrong digest, relay and debug image → FAIL; VM deleted after the test |
 
 Each dstack release also has `<release>.app-compose.json`, the exact measured
 document, for review. All are development releases: private sidecar image,
-PCK flags SMT/dynamic platform/cached keys accepted.
+PCK flags SMT/dynamic platform/cached keys accepted. Tags
+`release/<release>` exist for the four Phala releases.
+
+`2026.11.0-sev-snp-servury-dev.example.toml` (with its
+`.example.app-compose.json`) is **not a release**: an unverified example
+for the SEV-SNP image of `deploy/sev-snp/`, never compared with a report
+from hardware ([docs/SNP_SERVURY.md](../docs/SNP_SERVURY.md)).
+
+Notes on these files as historical records (they are not edited):
+
+* The header of `2026.11.4-phala-dev.toml` says the zone apex has no CAA
+  record and that `caa-check` and `ct-check` both fail. The apex
+  `issuewild ";"` was added later on 2026-11-27, and `caa-check.sh` has
+  passed since
+  ([recorded](../demo/live/caa-check-vault.facundo.dev.expected.txt)). The
+  CT statement still holds, until 2027-01-31.
+* **Open finding that applies to every dstack release above** (found
+  2026-11-27, after they were published): the policies pin image digests
+  as named in the measured compose, but Docker does not re-check an image
+  already in its store on the persistent disk, so a PASS does not prove
+  the image bytes
+  ([THREAT_MODEL §7](../docs/THREAT_MODEL.md#7-known-issues)). The planned
+  fix changes the measured pre-launch script and therefore needs a new
+  release; none of the releases above has it.
 
 ## Measurement tooling
 

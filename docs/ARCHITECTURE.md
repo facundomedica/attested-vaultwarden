@@ -1,6 +1,6 @@
 # Architecture
 
-> Status: **current as of the first live run (2026-11-26)**. Local mock layout: `deploy/local/`; Phala specifics: [PHALA.md](PHALA.md). Facts about dstack are from dstack v0.6.6 (commit
+> Status: **current as of release 2026.11.4 (2026-11-27)**. Research prototype; results and open problems: [OVERVIEW.md](OVERVIEW.md). Local mock layout: `deploy/local/`; Phala specifics: [PHALA.md](PHALA.md). Facts about dstack are from dstack v0.6.6 (commit
 > `c873038`, 2026-11-20); see [DECISIONS.md](DECISIONS.md) for sources.
 
 ## 1. Overview
@@ -77,8 +77,10 @@ against the operator.
 CT monitoring is implemented: `demo/live/ct-check.sh` checks that every
 logged certificate valid for the name, including `*.parent` wildcards, has
 an attested key (Cert Spotter's `pubkey_sha256` against the SPKI hashes in
-verifier PASS outputs). On `vault.facundo.dev` it fails: Cloudflare's
-`*.facundo.dev` certificates (D-048).
+verifier PASS outputs). It is a script run by hand, not a monitor. On
+`vault.facundo.dev` it fails until 2027-01-31: Cloudflare's `*.facundo.dev`
+certificates, issued before Universal SSL was turned off for the zone
+(D-048, D-052).
 
 ## 3. Attestation flow
 
@@ -151,8 +153,8 @@ is measured), routes `/.well-known/tee-attestation` to the sidecar and the
 rest to Vaultwarden (WebSocket upgrade passes through on the same port).
 Certificate store at `/data/caddy/certificates/<issuer>/<domain>/<domain>.crt`.
 Up to release 2026.11.2 that is inside the persistent `caddy_data` volume,
-which the sidecar mounts read-only as a whole. From the 2026.11.4 template
-(D-049) `/data/caddy/certificates` is a separate tmpfs-backed named volume
+which the sidecar mounts read-only as a whole. From release 2026.11.4
+(D-049, D-052) `/data/caddy/certificates` is a separate tmpfs-backed named volume
 (`caddy_certs`): certificates and private keys exist in memory only and are
 re-issued at every boot (Let's Encrypt: at most 5 identical certificates
 per week, so at most 5 cold starts per week); `caddy_data` keeps only the
@@ -177,7 +179,7 @@ Platform behind `QuoteProvider`:
 * `ConfigfsTsm`: SEV-SNP via `/sys/kernel/config/tsm/report` (stretch; verified in code, **never run on hardware**, see [SNP.md](SNP.md), D-050; `ATTEST_SNP_BINDING=measured-cmdline` for the Servury image, [SNP_SERVURY.md](SNP_SERVURY.md), D-055).
 * `GcpCs`: Google Cloud Confidential Space launcher socket; the evidence is
   a Google-signed attestation token whose `eat_nonce` carries `report_data`
-  (implemented, **never run on GCP**; trusts Google's attestation service;
+  (run live once on 2026-11-27, D-053; trusts Google's attestation service;
   no persistence; see [GCP_CONFIDENTIAL_SPACE.md](GCP_CONFIDENTIAL_SPACE.md), D-051).
 * `Mock`: INSECURE, local only.
 
@@ -199,8 +201,9 @@ fixtures and a pinned verification time.
 | `app-compose.json` (compose file, pre-launch script, `allowed_envs` names, KMS/gateway flags) | yes | RTMR3 `compose-hash` |
 | App ID, instance ID, key provider | yes | RTMR3 events |
 | **Encrypted env values** | **no** | operator (or anyone with VMM access) can substitute them |
-| Container images | indirectly | pinned by digest *inside* the measured compose |
-| Contents of `/data` (DB, `config.json`) | no | persistent state; see THREAT_MODEL §5 and R6 |
+| Container images | indirectly: the *reference* is measured | pinned by digest *inside* the measured compose; Docker checks the digest when it pulls |
+| Docker's image store, containers, networks (on the data disk) | **no** | an image already present is not re-checked against its digest: open finding, THREAT_MODEL §7 (K1). Containers and networks are removed by the measured pre-launch script from 2026.11.4 |
+| Contents of `/data` (DB, `config.json`, `rsa_key.pem`), ACME account | no | persistent state; see THREAT_MODEL §1, §5 and R6 |
 
 Consequence: every security-relevant setting goes literally into the compose.
 Encrypted env is used only for values whose substitution cannot change

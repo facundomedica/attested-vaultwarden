@@ -87,7 +87,9 @@ Other differences from the CLI:
   signed version the page sees: it can serve older TCB data, down to the
   policy's `tdx.min_tcb_eval_data_number`. There is no fallback.
 * **Servers before release 2026.11.3 cannot be verified**: their attestation
-  endpoint sends no `Access-Control-Allow-Origin`. The page says so
+  endpoint sends no `Access-Control-Allow-Origin`. (No release was
+  published under the number 2026.11.3; of the published releases,
+  2026.11.4 is the first whose endpoint sends the header.) The page says so
   (it distinguishes "answered but unreadable" from "unreachable" with a
   `no-cors` probe).
 * **The mock platform is always refused.**
@@ -272,7 +274,10 @@ What was run, on macOS arm64, rustc 1.97.1, wasm-bindgen 0.2.130, node 22:
 Run on macOS arm64, rustc 1.97.1, wasm-bindgen 0.2.130, node 22:
 
 * `cargo test --workspace`: 132 core tests (2 ignored: network), 10
-  `attested-vw-web` tests, all pass. `node web/test/run.mjs`: 14 tests pass
+  `attested-vw-web` tests, all pass. (Later the same day, after the SNP
+  `measured-cmdline` work was merged: 141 core tests, 2 ignored, and 10
+  `attested-vw-web` tests; 205 in the workspace with `common` and the
+  sidecar.) `node web/test/run.mjs`: 14 tests pass
   on the built file.
 * In a real browser (the built page served from `http://127.0.0.1:8765`,
   under its own CSP), driving the page's own `AVW.run` with a `fetch` that

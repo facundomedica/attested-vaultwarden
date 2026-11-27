@@ -1,7 +1,10 @@
 # Threat model
 
-> Status: **revised after the first live run (2026-11-26)**. Research
-> prototype. Platform facts and their sources: [DECISIONS.md](DECISIONS.md).
+> Status: **revised after the first live run (2026-11-26) and again on
+> 2026-11-27** (security review D-049, release 2026.11.4, one open finding:
+> [§7 Known issues](#7-known-issues)). Research prototype. Platform facts
+> and their sources: [DECISIONS.md](DECISIONS.md). Summary of the whole
+> project and its results: [OVERVIEW.md](OVERVIEW.md).
 
 ## 1. What this project claims
 
@@ -12,13 +15,13 @@ the hardware vendor's attestation root and the TEE itself are not broken**:
 | # | Claim | Established by |
 |---|-------|----------------|
 | C1 | The responder is a genuine Intel TDX guest (AMD SEV-SNP: verified in code, never run on hardware, [SNP.md](SNP.md), [SNP_SERVURY.md](SNP_SERVURY.md)), debug off, TCB acceptable to the policy. | Quote/report signature chain to the Intel/AMD root, collateral validity, TCB status and PCK platform flags (SMT, dynamic platform, cached keys) as the policy allows, debug attribute. SNP: VCEK bound to the report's TCB and chip; **no revocation (CRL) check yet**. |
-| C2 | The guest booted the published firmware and OS image. | MRTD + RTMR0-2 (TDX) or launch measurement (SNP) equal the policy. |
-| C3 | The guest runs the published compose document, and every container image in it is pinned by digest and allowlisted. | RTMR3 replay reproduces the quoted RTMR3 and its `compose-hash` event equals the policy; images parsed from that measured document. The verifier also refuses a list of known-dangerous compose settings (privileged, host namespaces and paths, command overrides, ...); that list is a safety net, not a proof that a compose is safe: what is trusted is the reviewed document the compose hash pins. |
+| C2 | The guest booted the firmware and OS image whose measurements the policy pins. That these are the *published* dstack image is not something the verifier computes: it follows from recomputing the values from the published image for the VM shape, which was done for every Phala release (`policy/*.reproduce.txt`). | MRTD + RTMR0-2 (TDX) or launch measurement (SNP) equal the policy. |
+| C3 | The guest was started from the published compose document (measured before any container starts), and every container image in it is referenced by digest and allowlisted. That the containers now running are exactly what that document describes, and that the image bytes are those of the digests, also needs the precondition below ([§7](#7-known-issues): open finding on the image store). | RTMR3 replay reproduces the quoted RTMR3 and its `compose-hash` event equals the policy; images parsed from that measured document. The verifier also refuses a list of known-dangerous compose settings (privileged, host namespaces and paths, command overrides, ...); that list is a safety net, not a proof that a compose is safe: what is trusted is the reviewed document the compose hash pins. |
 | C4 | The TLS private key behind the certificate the verifier just validated is held by that guest (and, see the precondition below, by nobody who had access to its persistent disk). | `report_data = SHA-512(tag ‖ nonce ‖ SHA-256(SPKI))` is signed by the TEE; the SPKI is taken from the verifier's own TLS handshake. |
 | C5 | The evidence is fresh. | Verifier-chosen 32-byte random nonce in `report_data`. |
 
 These claims are for the raw-quote platforms. On Google Cloud Confidential
-Space (`gcp-cs`: implemented, never run on GCP) the verifier sees no hardware
+Space (`gcp-cs`: run live once on 2026-11-27, then torn down, D-053) the verifier sees no hardware
 quote: it trusts Google's attestation service, which is also the host, so a
 PASS there holds against the workload operator and outsiders but **not**
 against the infrastructure provider (A1), and there is no persistence
@@ -44,6 +47,9 @@ What PASS does **not** claim:
 * that the next connection, or a connection from a Bitwarden app, reaches the
   same guest (see R1);
 * anything about the disk state being the latest (see R6);
+* anything about what earlier boots under the same app id left on the
+  persistent disk, the container images stored there included (the
+  precondition below, and the open finding K1 in §7);
 * anything when the platform is `mock`. Mock evidence proves nothing and the
   verifier never reports a plain PASS for it (exit 2, "PASS (INSECURE MOCK,
   proves nothing)").
@@ -74,9 +80,15 @@ something else prepared:
   `DOMAIN` and logged "environment variables are being overridden");
 * `/data/rsa_key.pem` (JWT signing key) can be copied: sessions for any
   user can be forged against the attested server;
-* the Docker image store is on the same disk (UNCONFIRMED for dstack
-  0.6.5; Docker does not re-verify layer contents against the digest when
-  it starts a container), so even "pinned by digest" would rest on it;
+* **the Docker image store is on the same disk (open finding,
+  2026-11-27, not fixed: [§7](#7-known-issues)).** Docker checks an
+  image's digest when it pulls it and trusts an image that is already
+  present locally; it does not re-verify layer contents when it starts a
+  container. A compose nobody published, run once under the same app id,
+  can therefore alter the stored layers of an allowlisted image, and the
+  next boot of the published compose runs the altered layers under the
+  correct digest. The verifier reports PASS: "pinned by digest" rests on
+  the image store;
 * **Docker's own state is on that disk too: containers, networks and the
   files compose writes for inline `configs`.** `docker compose up` keeps a
   container whose service definition it considers unchanged, and dstack
@@ -94,16 +106,20 @@ So C3 and C4 hold **only if no compose other than a published policy's has
 ever run under this app id with this key provider**. Nothing in the
 evidence shows that history. What exists today:
 
-* *Mitigation, template for the next release (2026.11.4):* TLS certificates
-  and keys live on a tmpfs and are re-issued at every boot, so no TLS key
-  is ever on the persistent disk; `CONFIG_FILE` points at a tmpfs, so a
-  planted `config.json` is not read; the sidecar mounts only the
-  certificates tmpfs. This closes the TLS-key and config channels. It does
+* *Mitigation, in release 2026.11.4 (deployed 2026-11-27, D-052):* TLS
+  certificates and keys live on a tmpfs and are re-issued at every boot,
+  so no TLS key is ever on the persistent disk (checked live: a restart
+  gave PASS with a different leaf key,
+  `demo/live/verify-2026.11.4-after-restart.expected.txt`); `CONFIG_FILE`
+  points at a tmpfs, so a planted `config.json` is not read (tested on the
+  pinned image locally, not on the live deployment); the sidecar mounts
+  only the certificates tmpfs. This closes the TLS-key and config
+  channels, as far as the image store can be trusted (§7). It does
   **not** close the ACME account key, `rsa_key.pem`, the database or the
   image store, and a TLS key persisted by an *earlier* release stays valid
   until its certificate expires or is revoked.
-* *Mitigation, same template: measured pre-launch cleanup.* Every render
-  target now gets a pre-launch script (`deploy/dstack/pre-launch-clean.sh.template`,
+* *Mitigation, same release: measured pre-launch cleanup.* Every render
+  target gets a pre-launch script (`deploy/dstack/pre-launch-clean.sh.template`,
   part of the measured app-compose, pinned by `pre_launch_script_sha256`)
   that removes **all** containers, their anonymous volumes and all unused
   networks before dstack runs `docker compose up`, and aborts the boot if
@@ -111,11 +127,14 @@ evidence shows that history. What exists today:
   created on this boot from the measured compose, which closes the stale
   container/config gap for honest updates and for simply planted
   containers. (The config-name revision suffix added for the current
-  deployment fixes honest updates only.) Limits: NOT yet run on dstack;
-  containers with a restart policy are started by the Docker daemon at
-  boot and run for some seconds before the script removes them; and it
-  does nothing about a tampered image store, Docker daemon state or named
-  volumes, so it narrows the precondition above, it does not remove it.
+  deployment fixes honest updates only.) Ran on Phala for 2026.11.4: the
+  serial log shows the three old containers removed before `docker
+  compose up` (D-052); the planted-container case itself was not staged
+  live. Limits: containers with a restart policy are started by the
+  Docker daemon at boot and run for some seconds before the script
+  removes them; and it does nothing about a tampered image store (§7),
+  Docker daemon state or named volumes, so it narrows the precondition
+  above, it does not remove it.
 * *Real fix (not implemented):* a key provider that releases the disk key
   only to compose hashes from a public allowlist, so that a non-published
   compose never gets the key in the first place: dstack's on-chain KMS
@@ -157,7 +176,7 @@ evidence shows that history. What exists today:
 | **A2 Holder of disk, snapshots or backups** | Reads and replays any persistent storage. | Data disk LUKS-encrypted with a key the KMS releases only to the measured app; the verifier fails if the RTMR3 `storage-encrypted` event is `0`, and reports "encryption not reported" if the OS image predates the event (dstack < 0.6.5); policies require the event by default (`require_storage_encrypted`). Backups taken *inside* the guest must be encrypted to a key the operator lacks; host-level snapshots are ciphertext. | Rollback (R6). Any backup tooling added later is in the TCB. |
 | **A3 Network attacker** | Intercepts, modifies, replays traffic between users and the service and between components. | TLS terminated inside the guest; WebPKI validation in the verifier. | Mis-issued certificates (R2). |
 | **A4 Service operator (us)** | Chooses what to deploy, holds the deployment credentials, injects secrets, controls DNS and the ACME account, can redeploy at will. | Measurements + compose hash + image allowlist against a public, signed release policy; TLS key generated in-guest; no operator access path in the published config (no SSH, no admin panel, see §5). | DNS and certificate control (R1, R2); unmeasured inputs (§5); publishing a malicious release openly (R3). |
-| **A5 Relay attacker** | Owns a genuine TEE running the published software and forwards its attestation while serving users from a different, non-attested server. | The attested `report_data` commits to the SPKI of the certificate the verifier itself received in the same TLS connection; a relay serving a different key fails C4. | A relay that also holds the in-guest TLS key passes. The key leaves the guest through a TEE break (R4) **or through persistent state**: up to 2026.11.2 the key is stored on the data disk, which any compose booted under the same app id can read (§1, precondition of C4). From the 2026.11.4 template on the key is memory-only; a key written by an earlier release remains usable until that certificate expires. The operator (A4) is the party able to do this, so against A4 the relay defence rests on the app id's history. |
+| **A5 Relay attacker** | Owns a genuine TEE running the published software and forwards its attestation while serving users from a different, non-attested server. | The attested `report_data` commits to the SPKI of the certificate the verifier itself received in the same TLS connection; a relay serving a different key fails C4. | A relay that also holds the in-guest TLS key passes. The key leaves the guest through a TEE break (R4) **or through persistent state**: up to 2026.11.2 the key is stored on the data disk, which any compose booted under the same app id can read (§1, precondition of C4). From release 2026.11.4 on the key is memory-only (a tampered image store, §7, could still leak it); a key written by an earlier release remains usable until that certificate expires. The operator (A4) is the party able to do this, so against A4 the relay defence rests on the app id's history. |
 
 ### Out of scope / residual risks
 
@@ -167,7 +186,8 @@ evidence shows that history. What exists today:
   can send some clients to a non-attested server and run any of the ETH
   attacks against them. Detection relies on (a) users running the verifier,
   (b) certificate-transparency monitoring of every certificate issued for the
-  domain against attested SPKIs (stretch), (c) CAA `accounturi` pinning so
+  domain against attested SPKIs (a script run by hand,
+  `demo/live/ct-check.sh`; no continuous monitor), (c) CAA `accounturi` pinning so
   only the in-guest ACME account can obtain certificates for the exact name
   (in place on the demo name since 2026-11-27; it does not cover wildcards
   of the parent, see R2). Per-
@@ -236,7 +256,8 @@ evidence shows that history. What exists today:
   (no persistence), a local SGX key provider, or a self-run KMS (D-032). With TLS
   passthrough (ARCHITECTURE §2) the dstack gateway sees only ciphertext and is
   trusted for availability only. Container images are trusted as published
-  upstream.
+  upstream, and the copies in the VM's image store are trusted to be those
+  images (not guaranteed today: K1 in §7).
 
 ## 4. Mapping the ETH Zurich / USI attacks
 
@@ -284,7 +305,7 @@ them:
 | Registry read token (private sidecar image, Phala deployment) | Delivered as encrypted env `GHCR_READ_TOKEN`, unmeasured; read by a measured pre-launch script that runs `docker login`. | Policy pins the script hash and the env name; images are pinned by digest, so a substituted token can only break the pull. Compose interpolation is forbidden, so the env cannot reach configuration. |
 | Vaultwarden admin panel (`/admin`) | If `ADMIN_TOKEN` comes from encrypted env, the host can replace it with a hash of its own token (row above). Holder of `ADMIN_TOKEN` can view user metadata (emails, item counts, orgs, last activity), delete/deauthorise users, invite users and **change configuration at runtime** (persisted to `config.json` in `/data`, overriding env). That is operator access to assets and to unmeasured behaviour. | `ADMIN_TOKEN` unset in attested releases (admin panel disabled); users are onboarded via org invitations. If a panel is ever needed, its Argon2 hash goes literally into the measured compose and every capability it grants is documented as operator power. DECISIONS.md D-008. |
 | Logs | Platform log collection (e.g. container logs visible to the operator) can leak IPs, emails and icon domains. | `LOG_LEVEL=warn`. On dstack, `public_logs` (measured) decides whether container logs are served by the guest agent's external API; with it off, not even the owner can read them. Development deployments turn logs on deliberately, and their policies must say so; a release meant for real use turns them off. |
-| Persistent `/data` and the other volumes | Files there change behaviour or hold keys, survive redeploys, and are readable and writable by any compose booted under the same app id (§1). `config.json` overrides the measured environment; `rsa_key.pem` signs sessions; Caddy's storage held the TLS key. The verifier cannot see any of it. | 2026.11.4 template: `CONFIG_FILE` on a tmpfs, TLS certificates and keys on a tmpfs. Not covered: `rsa_key.pem` (moving it off the disk would sign every user out at each restart, and their invitation and verification links would die; a copied key lets an attacker forge sessions and fetch *encrypted* vaults and metadata, not plaintext), the ACME account key (kept so a CAA `accounturi` pin stays stable), the database, the image store. |
+| Persistent `/data` and the other volumes | Files there change behaviour or hold keys, survive redeploys, and are readable and writable by any compose booted under the same app id (§1). `config.json` overrides the measured environment; `rsa_key.pem` signs sessions; Caddy's storage held the TLS key. The verifier cannot see any of it. | Release 2026.11.4: `CONFIG_FILE` on a tmpfs, TLS certificates and keys on a tmpfs. Not covered: `rsa_key.pem` (moving it off the disk would sign every user out at each restart, and their invitation and verification links would die; a copied key lets an attacker forge sessions and fetch *encrypted* vaults and metadata, not plaintext), the ACME account key (kept so a CAA `accounturi` pin stays stable), the database, the image store. |
 | Collateral source (`--pccs-url`) | Intel signs the collateral, but the source picks which signed version the verifier sees. An older TCB evaluation data set can show a platform as `UpToDate` that Intel has since declared `OutOfDate`. | The policy pins `min_tcb_eval_data_number` (default 20, the value on 2026-11-26); the report prints the number used. Default source is Intel PCS. A cache can still withhold a *newer* set than the minimum, and can serve a CRL as old as its validity allows. |
 | Upgrades | A new release is a new policy. | Every release is a public, signed policy file; users choose which releases they accept. |
 
@@ -304,3 +325,48 @@ them:
 * WebPKI is used only to reach the service; it is not part of the
   attestation argument, but a CA-issued certificate is what browsers and
   Bitwarden apps check.
+
+## 7. Known issues
+
+Open findings: things known to be wrong or unproven in the deployed
+release, as opposed to the stated limits of the design (R1–R10).
+
+### K1 Image store on the persistent disk: a PASS does not prove the image bytes (OPEN, found 2026-11-27, not fixed)
+
+* **What.** Docker's image store lives on the persistent data disk.
+  Docker verifies an image against its digest when it *pulls* it, and
+  trusts an image that is already present locally: at container start it
+  does not hash the layers again.
+* **Attack.** Whoever can boot a compose under the app id (the operator,
+  A4; see the precondition in §1) boots one that nobody published, alters
+  the stored layers of an allowlisted image (Vaultwarden, Caddy or the
+  sidecar) from inside that CVM, then boots the published compose again.
+  The published compose finds the image "present" under the pinned digest
+  and runs the altered layers.
+* **What the verifier says.** PASS. Every measurement is the published
+  one: the compose hash, the digests *named* in it, the OS. The check
+  "Images pinned and allowlisted" is a statement about the measured
+  document, not about the bytes that run.
+* **What it breaks.** C3, and through it everything else: altered server
+  code can do what the paper's malicious server does, and altered Caddy or
+  sidecar code can leak the in-memory TLS key (C4). The 2026.11.4
+  mitigations (TLS key and `config.json` on tmpfs, pre-launch removal of
+  containers) do not help, because they remove containers and files, not
+  images.
+* **Who is affected.** Every dstack release so far (2026.11.0 to
+  2026.11.4). Not the Confidential Space image and not the Servury SNP
+  image: neither has an image store (one measured image; binaries inside
+  the measured initrd).
+* **Status of the evidence.** Stated here as found on 2026-11-27. This
+  document does not record a staged run of the attack against the live
+  deployment.
+* **Planned fix, not deployed.** The measured pre-launch script removes
+  all local images at every boot, so that each image is pulled again and
+  checked against its digest by Docker before it runs. Cost: a slower
+  boot, a registry dependency at every boot (and the read token for the
+  private sidecar image), and it relies on the pull-time check of the
+  Docker shipped in the measured OS image. It needs a new release (the
+  script is part of the measured compose).
+* **Until then.** This is one more consequence of the persistent-state
+  precondition: C3 holds only if nothing but published composes ever ran
+  under the app id, which the verifier cannot see (§6).

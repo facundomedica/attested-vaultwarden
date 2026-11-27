@@ -30,3 +30,12 @@ Notes:
   the containers live on the persistent disk, so without the rename an
   update would measure the new Caddyfile while Caddy keeps the old one
   (seen live, DECISIONS D-049).
+* **Open finding (2026-11-27): the pre-launch script removes containers
+  and networks, not images.** Docker's image store is on the persistent
+  disk and an image already present is not re-checked against its digest,
+  so a compose nobody published, run earlier under the same app id, could
+  have altered a stored image
+  ([THREAT_MODEL §7](../../docs/THREAT_MODEL.md#7-known-issues)). Planned,
+  not implemented here: also remove all local images in
+  `pre-launch-clean.sh.template`, so every boot pulls and digest-checks
+  them (slower boot; a new `pre_launch_script_sha256`, so a new release).

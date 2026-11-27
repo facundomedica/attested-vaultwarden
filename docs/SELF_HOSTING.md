@@ -1,6 +1,9 @@
 # Self-hosting on dstack (Intel TDX)
 
-> Status: **runbook draft (M3 prep)**. Not yet executed on real hardware.
+> Status: **runbook draft (M3 prep)**. Not yet executed on real hardware;
+> all live runs were on Phala Cloud ([PHALA.md](PHALA.md)). Steps that
+> changed after this was written (the measured pre-launch script that
+> `render.sh` now writes for every target, D-049) were never tried here.
 > Research prototype: do not store real passwords. Upstream facts are from
 > dstack commit `73b10c6` (2026-11-26); see [DECISIONS.md](DECISIONS.md).
 
@@ -114,8 +117,9 @@ deploy/dstack/render.sh vault.example.com \
   ghcr.io/<owner>/attest-sidecar@sha256:<digest> none deploy/dstack/.generated
 ```
 
-writes `docker-compose.yml` and `app-compose.json` and prints
-`compose_hash`, which goes into the policy. Every Vaultwarden setting is
+writes `docker-compose.yml`, `pre-launch.sh` (embedded in the document)
+and `app-compose.json`, and prints `compose_hash` and
+`pre_launch_script_sha256`, which go into the policy. Every Vaultwarden setting is
 literal in the compose: no encrypted env is used (`allowed_envs = []`).
 
 ## 6. DNS

@@ -13,7 +13,7 @@ claims to be. No TEE knowledge needed. Takes a few minutes.
   Windows with WSL).
 * The server's address, e.g. `https://vault.example.com`.
 * The **release policy** the operator published for the version they run:
-  a file like `policy/2026.11.0-phala-dev.toml` in this repository.
+  a file like `policy/2026.11.4-phala-dev.toml` in this repository.
 
 ## Step 1: get the verifier from a source you trust
 
@@ -22,7 +22,7 @@ Build it from this repository yourself, at a release tag:
 ```bash
 git clone <this repository> attested-vaultwarden
 cd attested-vaultwarden
-git checkout <release tag>        # e.g. release/2026.11.1-phala-dev
+git checkout <release tag>        # e.g. release/2026.11.4-phala-dev
 git tag -v <release tag>          # signed by the maintainer
 cargo build --release -p attested-vw-verify
 ```
@@ -72,9 +72,9 @@ You get a list of checks, each ✓ or ✗ with a reason, and a final
 | report_data matches | The signed proof contains your random challenge and your connection's key. |
 | Firmware / OS measurements | The virtual machine booted the firmware and OS the release pins. |
 | Runtime event log | The deployment details the OS recorded at boot are consistent with the signed proof, the disk is encrypted, and the key service is the expected one. |
-| Compose hash | The server runs exactly the deployment document in the release (persistent data and unmeasured secret values are not part of it). |
+| Compose hash | The server was started from exactly the deployment document in the release (persistent data and unmeasured secret values are not part of it). |
 | Measured config is self-contained | Nothing outside that document (scripts, injected settings) can change what runs, except what the release explicitly pins. |
-| Images pinned and allowlisted | Every container image is pinned by digest and is one the release lists. (Whether that image was built from the published source is a separate check: rebuild it, see the policy header.) |
+| Images pinned and allowlisted | Every container image is named by digest in the deployment document and is one the release lists. (Whether that image was built from the published source is a separate check: rebuild it, see the policy header. Whether the copy on the server's disk still is that image is not checked: see below.) |
 
 ## What PASS means, and what it does not
 
@@ -91,6 +91,19 @@ PASS does **not** mean:
   runs, not that the code is good. Reviewing the release is a separate step.
 * that the server's stored data is the latest (an old disk snapshot could be
   restored without the verifier noticing).
+* that the operator never started *other* software on the same disk. The
+  disk's key belongs to the deployment, not to one configuration, so the
+  operator can boot something unpublished once, read or change what is on
+  the disk (the vault database, the server's signing key), and boot the
+  published release again; the verifier then sees only the published
+  release. You are trusting the operator's word that this never happened.
+* **that the container images on the server's disk are byte-for-byte the
+  pinned ones.** This is a known, open problem (found 2026-11-27, not
+  fixed): images are checked against their digest when downloaded, not
+  when started, and they are stored on that same disk, so the trick in the
+  previous point could also replace the server software itself while every
+  line here stays ✓
+  ([THREAT_MODEL.md, Known issues](THREAT_MODEL.md#7-known-issues)).
 * anything against physical attacks on the server hardware.
 * "runs the published OS image", if the policy header says the
   measurements were *observed*.
@@ -120,7 +133,8 @@ keys attested in the past count for as long as their certificates are
 valid; Intel collateral is fetched from Phala's mirror because Intel's
 service does not answer web pages (it is Intel-signed and verified either
 way). Servers older than release 2026.11.3 cannot be checked from a
-browser. Details: `web/README.md`.
+browser (no release was published under that number; of the published
+ones, 2026.11.4 is the first that can). Details: `web/README.md`.
 
 The page handles all three platforms and fetches the vendor material at
 each run rather than carrying a copy:

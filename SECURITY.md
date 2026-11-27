@@ -2,7 +2,10 @@
 
 This is a **research prototype**. It is not production-ready, has had no
 external audit, and must not hold real passwords. See the
-[threat model](docs/THREAT_MODEL.md) for what it does and does not protect.
+[threat model](docs/THREAT_MODEL.md) for what it does and does not protect,
+and its [Known issues](docs/THREAT_MODEL.md#7-known-issues) for findings
+that are already known and open (one today: container images on the
+persistent disk are not re-checked against their digests).
 
 ## Reporting a problem
 
