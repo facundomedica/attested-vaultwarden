@@ -56,6 +56,16 @@ something else prepared:
 * the Docker image store is on the same disk (UNCONFIRMED for dstack
   0.6.5; Docker does not re-verify layer contents against the digest when
   it starts a container), so even "pinned by digest" would rest on it;
+* **Docker's own state is on that disk too: containers, networks and the
+  files compose writes for inline `configs`.** `docker compose up` keeps a
+  container whose service definition it considers unchanged, and dstack
+  runs it without `--force-recreate`. This was seen live, without any
+  attacker: after a compose update that changed only the inline Caddyfile,
+  the proxy container was not recreated and Caddy kept serving the *old*
+  configuration while RTMR3 held the *new* compose hash. So "measured
+  compose = running configuration" does not follow from the measurements
+  alone: a container left behind by an earlier compose of the same app id,
+  under the same service name, can run under a PASS;
 * the database itself, of course (stored hashes, encrypted vaults,
   metadata).
 
@@ -71,6 +81,20 @@ evidence shows that history. What exists today:
   **not** close the ACME account key, `rsa_key.pem`, the database or the
   image store, and a TLS key persisted by an *earlier* release stays valid
   until its certificate expires or is revoked.
+* *Mitigation, same template: measured pre-launch cleanup.* Every render
+  target now gets a pre-launch script (`deploy/dstack/pre-launch-clean.sh.template`,
+  part of the measured app-compose, pinned by `pre_launch_script_sha256`)
+  that removes **all** containers, their anonymous volumes and all unused
+  networks before dstack runs `docker compose up`, and aborts the boot if
+  any container is left. Named volumes are kept. Each container is then
+  created on this boot from the measured compose, which closes the stale
+  container/config gap for honest updates and for simply planted
+  containers. (The config-name revision suffix added for the current
+  deployment fixes honest updates only.) Limits: NOT yet run on dstack;
+  containers with a restart policy are started by the Docker daemon at
+  boot and run for some seconds before the script removes them; and it
+  does nothing about a tampered image store, Docker daemon state or named
+  volumes, so it narrows the precondition above, it does not remove it.
 * *Real fix (not implemented):* a key provider that releases the disk key
   only to compose hashes from a public allowlist, so that a non-published
   compose never gets the key in the first place: dstack's on-chain KMS

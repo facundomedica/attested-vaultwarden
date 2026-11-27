@@ -7,7 +7,7 @@
 #   none   self-hosted, no key provider (disk key random per boot: data does
 #          NOT survive a CVM restart)                                (default)
 #   local  self-hosted, SGX local key provider (requires SGX on the host)
-#   phala  Phala Cloud: only docker-compose.yml is written; Phala builds the
+#   phala  Phala Cloud: docker-compose.yml and pre-launch.sh; Phala builds the
 #          app-compose itself, so its compose hash is read after deploying
 #          (docs/PHALA.md)
 #   phala-private  as phala, plus pre-launch.sh that logs in to GHCR for a
@@ -27,17 +27,22 @@ case "$kp" in none|local|phala|phala-private) ;; *) echo "target must be none, l
 mkdir -p "$out"
 sed -e "s|__DOMAIN__|${domain}|g" -e "s|__ATTEST_IMAGE__|${image}|g" \
   "$here/docker-compose.template.yml" > "$out/docker-compose.yml"
+# Every target gets a measured pre-launch script. Part 1 removes containers
+# and networks left on the data disk, so that everything is created from the
+# measured compose (pre-launch-clean.sh.template explains why). Part 2, for
+# phala-private only, logs in to GHCR.
+cp "$here/pre-launch-clean.sh.template" "$out/pre-launch.sh"
 if [ "$kp" = phala-private ]; then
   [[ "$image" =~ ^ghcr\.io/([a-z0-9-]+)/ ]] || { echo "phala-private needs a ghcr.io/<user>/ image" >&2; exit 1; }
-  sed "s|__GHCR_USER__|${BASH_REMATCH[1]}|" "$here/pre-launch-ghcr.sh.template" > "$out/pre-launch.sh"
-  echo "pre_launch_script_sha256 = $(shasum -a 256 "$out/pre-launch.sh" | cut -d' ' -f1)"
-  echo "wrote $out/pre-launch.sh"
+  sed "s|__GHCR_USER__|${BASH_REMATCH[1]}|" "$here/pre-launch-ghcr.sh.template" >> "$out/pre-launch.sh"
 fi
+echo "pre_launch_script_sha256 = $(shasum -a 256 "$out/pre-launch.sh" | cut -d' ' -f1)"
+echo "wrote $out/pre-launch.sh"
 if [ "$kp" = phala ] || [ "$kp" = phala-private ]; then
   echo "wrote $out/docker-compose.yml (Phala builds app-compose; see docs/PHALA.md)"
   exit 0
 fi
-python3 -I - "$out/docker-compose.yml" "$out/app-compose.json" "$kp" <<'PY'
+python3 -I - "$out/docker-compose.yml" "$out/app-compose.json" "$kp" "$out/pre-launch.sh" <<'PY'
 import json, sys, hashlib
 compose, outp, kp = sys.argv[1], sys.argv[2], sys.argv[3]
 doc = {
@@ -45,6 +50,7 @@ doc = {
     "name": "attested-vaultwarden",
     "runner": "docker-compose",
     "docker_compose_file": open(compose, "rb").read().decode("utf-8"),
+    "pre_launch_script": open(sys.argv[4], "rb").read().decode("utf-8"),
     "kms_enabled": False,
     "gateway_enabled": False,
     "local_key_provider_enabled": kp == "local",

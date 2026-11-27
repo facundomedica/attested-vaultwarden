@@ -858,3 +858,34 @@ not deployed, no policy yet):
 * Not solved by the template: THREAT_MODEL §1 (precondition of C3/C4). The
   fix is a key provider that releases the disk key only to allowlisted
   compose hashes.
+* **Stale Docker state under a new compose hash (seen live, 2026-11-27).**
+  After a Phala compose update that changed only the inline Caddyfile,
+  `docker compose up` did not recreate the proxy container, and Caddy kept
+  the old configuration while the CVM measured the new compose. Containers
+  live on the persistent data disk and are not measured. A revision suffix
+  on the config name (deploy agent's change to `render.sh`/template) forces
+  recreation for honest updates. The general gap (any container, network
+  or materialised config left by an earlier compose of the same app id)
+  needs the launcher to start from nothing. Options considered:
+  1. `docker compose up --force-recreate`: the right tool, but the flag is
+     set in dstack's `app-compose.sh` inside the measured OS image, which
+     an app cannot change. Worth proposing upstream.
+  2. **Chosen:** a measured pre-launch script
+     (`deploy/dstack/pre-launch-clean.sh.template`) that runs
+     `docker rm -f -v` on every container and `docker network prune -f`,
+     then aborts the boot if a container is left. dstack sources the
+     script under `set -euo pipefail` right before `docker compose up`.
+     Named volumes are kept. `render.sh` writes it for every target
+     (`phala`, `phala-private` with the GHCR login appended, and into
+     `app-compose.json` for self-hosted targets) and prints the hash for
+     `pre_launch_script_sha256`. On Phala this means
+     `--pre-launch-script pre-launch.sh --no-dev-os` for both targets
+     (`--no-pre-launch-script` gave no script; omitting both flags gives
+     Phala's unpinned default script, which the verifier refuses).
+  3. `docker system prune -a --volumes` or deleting the Docker data root:
+     would also drop the image store, but named volumes hold the vault.
+  Not verified on dstack (no deployment from this branch). Open points to
+  check on first use: the Docker daemon must be running when the script is
+  sourced; old containers with a restart policy run from daemon start
+  until the script removes them; whether dstack rewrites
+  `docker-compose.yaml` in its work directory on every boot.
