@@ -155,7 +155,7 @@ Platform behind `QuoteProvider`:
 
 * `Dstack`: guest agent v0 `GetQuote` (`report_data` passed raw, ≤ 64 bytes,
   no hashing by the agent) or v1 `Attest` (MessagePack). See DECISIONS D-004.
-* `ConfigfsTsm`: SEV-SNP via `/sys/kernel/config/tsm/report` (stretch, **not implemented**).
+* `ConfigfsTsm`: SEV-SNP via `/sys/kernel/config/tsm/report` (stretch; implemented, **never run on SNP hardware**, see [SNP.md](SNP.md)).
 * `Mock`: INSECURE, local only.
 
 ### 4.4 `verifier`

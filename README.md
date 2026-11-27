@@ -123,10 +123,11 @@ Step-by-step for non-experts: [docs/VERIFY.md](docs/VERIFY.md).
   verifier can rebuild it reproducibly from source, at the commit named in
   the policy header (not the release tag), and compare digests
   (`attest-sidecar/reproducible-build.sh <commit>`), but cannot pull it.
-* **SEV-SNP is verifier-only.** The verifier checks SNP reports (signature
-  chain, TCB, guest policy), but there is no SNP deployment, no SNP
-  sidecar provider, and an SNP target always FAILs the compose binding
-  check, which is not implemented.
+* **SEV-SNP has never run on hardware.** The verifier binds the compose
+  document through `HOST_DATA` and a pinned launch measurement, and the
+  sidecar has a configfs-tsm provider, but both are tested only with
+  synthetic reports and a fake configfs directory; there is no SNP guest
+  image and no SNP deployment ([docs/SNP.md](docs/SNP.md)).
 * **Development releases.** All published policies accept the PCK flags
   SMT, dynamic platform and cached keys, and run with container logs on
   except 2026.11.0. From 2026.11.2 policies pin the dstack `app_id` and
@@ -148,7 +149,7 @@ Step-by-step for non-experts: [docs/VERIFY.md](docs/VERIFY.md).
 | Path | What |
 |------|------|
 | `attest-sidecar/` | Small Rust service serving `/.well-known/tee-attestation`; reproducible image build and publish scripts |
-| `verifier/` | `attested-vw-verify` CLI and library (dcap-qvl for TDX; VirTEE `sev` for SEV-SNP report checks, no SNP deployment yet) |
+| `verifier/` | `attested-vw-verify` CLI and library (dcap-qvl for TDX; VirTEE `sev` for SEV-SNP, no SNP deployment yet) |
 | `common/` | `report_data` construction, attestation schema, policy format, compose checks |
 | `deploy/local/` | INSECURE mock stack + e2e test (no TEE needed) |
 | `deploy/dstack/` | dstack compose template, `render.sh`, simulator test |

@@ -9,7 +9,8 @@ A policy pins:
 * the platform (`tdx`, `sev-snp`);
 * expected firmware/OS measurements (TDX: MRTD, RTMR0-2; SNP: launch
   measurement);
-* the hash of the measured compose document (TDX/dstack: `compose_hash`);
+* the hash of the measured compose document (TDX/dstack: `compose_hash`;
+  SNP: `host_data`, see [docs/SNP.md](../docs/SNP.md), untested on hardware);
 * the allowlist of container images, each pinned by `@sha256:` digest;
 * accepted TCB status and PCK platform flags (`allow_smt`,
   `allow_dynamic_platform`, `allow_cached_keys`, all default false);
