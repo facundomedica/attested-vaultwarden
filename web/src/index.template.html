@@ -111,7 +111,14 @@ a VM.</p>
   <li><strong>TLS key, via Certificate Transparency.</strong> The quote also signs the hash of the server's
       TLS public key. This page then lists every certificate that is currently valid for the name in the
       public CT logs (including wildcard certificates of the parent domain) and requires each one's key to
-      be the key attested just now, or one attested earlier and bundled with this page.</li>
+      be the key attested just now, or one attested earlier and bundled with this page.
+      <strong>If this is the only line that fails</strong>, the VM itself verified, but somebody outside it
+      holds a certificate that browsers accept for the name; the list under the result shows which. The
+      usual case is a wildcard (<code>*.example.org</code>) held by a CDN or DNS provider of the parent
+      domain. The demo deployment <code>vault.facundo.dev</code> fails here for exactly that reason:
+      Cloudflare wildcard certificates for <code>*.facundo.dev</code>, issued before Cloudflare's
+      certificates were turned off for the domain on 2026-11-27, stay valid until they expire (the last
+      one on 2027-01-31). Use the command-line verifier for a per-connection check in the meantime.</li>
 </ul>
 
 <h2 id="limits">What this page cannot check</h2>

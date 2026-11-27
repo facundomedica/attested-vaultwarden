@@ -143,7 +143,9 @@ evidence shows that history. What exists today:
   attacks against them. Detection relies on (a) users running the verifier,
   (b) certificate-transparency monitoring of every certificate issued for the
   domain against attested SPKIs (stretch), (c) CAA `accounturi` pinning so
-  only the in-guest ACME account can obtain certificates (stretch). Per-
+  only the in-guest ACME account can obtain certificates for the exact name
+  (in place on the demo name since 2026-11-27; it does not cover wildcards
+  of the parent, see R2). Per-
   connection verification in clients is future work.
 * **R2 DNS and WebPKI.** The operator controls the domain. WebPKI validation
   proves domain control, not attestation. Same mitigations as R1, plus
@@ -153,14 +155,23 @@ evidence shows that history. What exists today:
   quote). A certificate issued outside the CVM therefore shows up in CT,
   detectably, even before anyone is served by it. The check includes
   wildcard certificates for the parent domain (`*.parent` covers the
-  name). **The demo domain fails it:** `facundo.dev` is on Cloudflare, whose
-  wildcard `*.facundo.dev` certificates (keys held by Cloudflare) are valid
-  for `vault.facundo.dev` (`demo/live/ct-check.expected.txt`, 5 of 7
-  certificates never attested). The per-connection verifier still catches a
-  server using them; the domain-wide CT claim needs a name that no
-  non-attested wildcard covers. CAA cannot fix this here: the name is a
-  CNAME to the Phala gateway (no other records allowed at it), and wildcard
-  issuance follows the parent's CAA, not the name's.
+  name). **The demo domain fails it until about the end of January
+  2027:** `facundo.dev` was behind Cloudflare, whose Universal SSL wildcard
+  `*.facundo.dev` certificates (keys held by Cloudflare) are valid for
+  `vault.facundo.dev` (`demo/live/ct-check.expected.txt`, 5 certificates
+  never attested). Universal SSL was turned off for the zone on 2026-11-27
+  (D-052); the existing wildcards expire by 2027-01-31. The per-connection
+  verifier still catches a server using them. CAA: the name is now an A
+  record with its own CAA set (Let's Encrypt, the in-CVM account,
+  TLS-ALPN-01 only, no wildcard), which stops other CAs and other accounts
+  for the exact name. It does not stop a wildcard for the parent: that
+  follows the parent's CAA set, and the apex of `facundo.dev` has none
+  (`demo/live/caa-check-vault.facundo.dev.expected.txt` FAILs on that
+  line). Two further limits: the ACME account key is on the persistent
+  disk (§1), so whoever can boot another compose under the app id can copy
+  it and issue from outside under the same `accounturi`; and the operator
+  controls the DNS zone, so can change or remove the CAA set (visible only
+  to someone monitoring DNS).
 * **R3 Bugs or malicious logic in the published code.** Attestation proves
   *which* code runs, not that it is good. A release containing a backdoor
   passes verification. Mitigation is social: releases are public, pinned and

@@ -57,15 +57,21 @@ Rationale:
   `<app_id>-443s.<base_domain>` name with a certificate issued for it, or
   dns-01 with a narrowly scoped token (documented as operator-controlled).
 
-**Stretch, blocked on the demo domain:** CAA record with `accounturi`
-pinned to the in-CVM ACME account (dstack-ingress does this with
-`SET_CAA=true`), so that the operator cannot get a certificate for the
-domain from outside the CVM without a visible DNS change. On Phala the name
-is a CNAME to the gateway, so no CAA record can sit at it; CAA lookup then
-climbs to the parent, where it would govern every other name of that zone.
-And wildcard issuance (`*.parent`, which also covers the name) follows the
-parent's CAA anyway (D-048). It needs a dedicated parent domain, or A
-records instead of the CNAME.
+**CAA with `accounturi`** (done for the demo name on 2026-11-27, D-052):
+a CAA set pinned to the in-CVM ACME account (dstack-ingress does this with
+`SET_CAA=true`), so that a certificate for the name cannot be obtained from
+another account or CA without a visible DNS change. A name that is a CNAME
+can hold no other records, and a CAA lookup at it follows the CNAME, so the
+name must be an **A record** to the gateway (cost: the gateway's address is
+copied into the zone and must be updated if Phala moves it). The demo name
+has `issue "letsencrypt.org; accounturi=…/acct/4048885521;
+validationmethods=tls-alpn-01"` and `issuewild ";"`; Caddy renewed under it.
+What it does not cover: a wildcard `*.parent` also covers the name, and its
+issuance follows the *parent's* CAA set. `facundo.dev` has none (a zone-wide
+`issuewild ";"` would also hit other wildcard names of the zone), so
+`demo/live/caa-check.sh` FAILs on that line. A dedicated parent domain with
+CAA at its apex closes it. In every case the DNS operator can change CAA:
+it is a tripwire together with CT, not a barrier against the operator.
 
 CT monitoring is implemented: `demo/live/ct-check.sh` checks that every
 logged certificate valid for the name, including `*.parent` wildcards, has

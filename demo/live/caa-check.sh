@@ -14,7 +14,11 @@
 # RFC 8657 adds the `accounturi` (one ACME account) and `validationmethods`
 # parameters to an issuer's property; Let's Encrypt enforces both.
 #
-# Why the parent. The service name is a CNAME to the hosting gateway, and a
+# If the name is an A/AAAA record it can hold its own CAA set, which then
+# governs the exact name (vault.facundo.dev since 2026-11-27); wildcards of
+# the parent are still governed by the parent's set, and are checked too.
+#
+# Why the parent, when the name is a CNAME. The service name is a CNAME to the hosting gateway, and a
 # name that owns a CNAME can own no other data (RFC 1034 §3.6.2, RFC 2181
 # §10.1), so a CAA record cannot sit at the name itself. A CAA query there
 # is answered by following the CNAME: what comes back is the *target's* CAA

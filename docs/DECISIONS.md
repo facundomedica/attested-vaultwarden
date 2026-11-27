@@ -956,3 +956,79 @@ Design and sources: [GCP_CONFIDENTIAL_SPACE.md](GCP_CONFIDENTIAL_SPACE.md).
   small supervisor; `deploy/gcp-cs/deploy.sh` prints commands and runs
   nothing. Unconfirmed until a live run: socket path, nonce order, the
   shape of the `tdx` claim, networking.
+
+### D-052 facundo.dev: Pages off the Cloudflare proxy, Universal SSL off, CAA on the vault name; release 2026.11.4-phala-dev (2026-11-27)
+
+Goal: stop certificates for `vault.facundo.dev` from existing outside the
+CVM (D-048: Cloudflare's Universal SSL wildcards cover the name).
+
+* **GitHub Pages moved to DNS only.** `facundo.dev` (Pages repository
+  `knowledgebase`, custom domain) was a proxied CNAME; it is now four A and
+  four AAAA records to GitHub Pages, and `www` a CNAME to
+  `facundomedica.github.io`, all DNS only. GitHub issued its own Let's
+  Encrypt certificate for `facundo.dev` + `www.facundo.dev` (after removing
+  and re-adding the custom domain through the API; about a minute), and
+  "enforce HTTPS" is on. `www` had been answering 526 behind Cloudflare and
+  works again.
+* **Universal SSL turned off** for the zone, after the site served
+  GitHub's certificate. Cloudflare issues no further `*.facundo.dev`
+  certificates. The five existing wildcards are not affected by this in CT
+  terms: they stay valid until they expire, the last on 2027-01-31, and
+  `ct-check.sh` and the browser verifier keep failing until then.
+  **Side effect, accepted by the owner:** seven other proxied names of the
+  zone (`editor`, `home`, `ipfs`, and the tunnels `ethos`, `local`, `skip`,
+  `skipapi`) no longer have an edge certificate and do not work over HTTPS.
+  Their records were left unchanged.
+* **Vault name: A record + CAA at the name.** `vault` is an A record to
+  the gateway's address (66.220.6.105) instead of a CNAME, which allows a
+  CAA set at the name: `issue "letsencrypt.org; accounturi=…/acct/4048885521;
+  validationmethods=tls-alpn-01"` and `issuewild ";"`. Caddy obtained
+  certificates under it twice. Cloudflare's dashboard showed no warning and
+  added no records of its own at `vault` or the apex (checked at the
+  authoritative servers). **Not achieved:** `caa-check.sh` still FAILs,
+  because a wildcard `*.facundo.dev` is governed by the apex, which has no
+  CAA. An apex `issuewild ";"` would close that but also forbids wildcard
+  certificates for every other name without its own set (`*.apps` exists
+  in the zone); left for the owner to decide.
+* **`vault.warden.facundo.dev` abandoned.** The dedicated-parent layout
+  (CAA at `warden.facundo.dev`, D-048's suggestion) was set up, but Phala
+  did not route the two-label name (cause unknown). Its CNAME, TXT and the
+  two CAA records at `warden` are still in the zone and harmless, as is
+  the Phala domain binding.
+* **Release 2026.11.4-phala-dev**, the D-049 template, deployed in place
+  on CVM `73eb5a7e…` (same app id). Sidecar from commit `9f723df`,
+  `sha256:00055017…`, reproduced with `reproducible-build.sh`. Compose hash
+  `65a901cb…`. MRTD/RTMR0-2 reproduced again with `dstack-mr`. First live
+  run of the D-049 checks, none needed loosening: the RTMR3 sequence is the
+  expected one with `gpu-policy-hash` present and `os-image-hash` before
+  `key-provider`; MRCONFIGID is the version 3 form (`0x03 ‖ 32 bytes`) and
+  is now pinned by value; TCB evaluation data number 20. The policy also
+  pins `public_logs = true` and `min_tcb_eval_data_number = 20`.
+  `bootstrap-policy.sh` had stopped working with D-049 (its placeholder
+  policy lacked the mandatory `app_id` / `key_provider`, and with zero
+  placeholders the event-log gate fails); it now runs a second pass with
+  the two observed values pinned and emits the new fields.
+* Results: verify → PASS; wrong `app_id` → FAIL; CORS header present;
+  after `phala cvms restart` → PASS with a different leaf key (`a8ecc85c…`
+  → `e7496d20…`), confirming the tmpfs key store; the pre-launch cleanup
+  removed the three old containers (serial log); smoke test clean. Browser
+  verifier (merged from its branch, built at this tree): every line ✓
+  except Certificate Transparency, in Node and in a real browser
+  (`web/testdata/live-2026-11-27-vault.facundo.dev.json`). Let's Encrypt
+  budget for the name: 4 of 5 identical certificates used this week.
+  CVM stopped afterwards (not deleted).
+
+### D-053 Google Cloud Confidential Space: one live run (2026-11-27)
+
+Merged from the GCP branch (details and transcripts in
+[GCP_CONFIDENTIAL_SPACE.md](GCP_CONFIDENTIAL_SPACE.md),
+`policy/2026.11.0-gcp-cs-dev.toml`, `demo/live/verify-gcp-cs.expected.txt`):
+the workload ran once on the production Confidential Space image 261100 and
+verified PASS; the negative cases FAIL; that nothing persists across a
+restart was confirmed. The instance was torn down; the GCP project
+`attested-vw-test-6976` was kept, with the workload image in its registry.
+The attestation route now sends the CORS header there too, and
+`ATTEST_GLOBAL_RATE_PER_SEC=4` from the integration stays. DNS leftovers of
+that test in `facundo.dev` (`vault.gcp` A record to a released address, two
+CAA records at `gcp`) were to be deleted; see the open items of the
+2026-11-27 session if they are still present.

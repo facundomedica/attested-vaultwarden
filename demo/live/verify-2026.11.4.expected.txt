@@ -1,0 +1,22 @@
+Target:  https://vault.facundo.dev
+Policy:  release 2026.11.4-phala-dev
+Platform: tdx
+  (TLS trust roots: Mozilla WebPKI (webpki-roots))
+  ✓ TLS connection, certificate validated: TLSv1_3 to vault.facundo.dev:443, certificate valid for host; leaf SPKI SHA-256 a8ecc85cdf94eab769ffb888667415bff63a03a9d10b429f7474c33ed1973de5
+  ✓ Fetch attestation over same connection: same TLS connection, 26025 bytes
+  ✓ TLS key bound to attestation: attested SPKI equals the certificate we received
+  ✓ Freshness nonce: server echoed our fresh nonce
+  ✓ Hardware evidence signature, TCB, debug off: Intel DCAP quote signature and collateral valid, TCB UpToDate (TCB evaluation data number 20, policy minimum 20), TD debug off
+  ✓ report_data matches nonce + TLS key: signed report_data = SHA-512(tag ‖ our nonce ‖ our TLS SPKI)
+  ✓ Firmware / OS measurements: MRTD, RTMR0-2 equal the values pinned by release 2026.11.4-phala-dev
+  ✓ Runtime event log (RTMR3 replay): 11 RTMR3 events replay to the quoted RTMR3; app-id 8a1aa54cc59424f894b82a5cad0d402b047ee0ab, key-provider {"name":"kms","id":"3059301306072a8648ce3d020106082a8648ce3d03010703420004e8e325a477b0bf22800dc927a46c68638938d283fe73d1f9028eeac7028193f3470122193875f598b7addc503e534712ab437b4120776bbac32ddf8897f844ee"}, data disk encrypted
+  ✓ Compose hash (published software): measured = SHA-256(served app-compose) = 65a901cb3445c4c19634ef4cc4a86f11db5884e6bd069ad74385457740ae273f = release 2026.11.4-phala-dev
+  ✓ Measured config: known pitfalls absent: pre-launch script, init script and encrypted env names as the policy pins; no variable interpolation; no privileged, host-namespace, host-path or command-override settings; public_logs = true
+  ✓ Images pinned and allowlisted: 3 services, all pinned by digest and allowlisted
+      attest  ghcr.io/facundomedica/attest-sidecar@sha256:00055017952f7eae1c2ef13aab762a682a5738cf7db559e5ffb5786bb4894463
+        (private registry: rebuild with attest-sidecar/reproducible-build.sh <commit from policy header>)
+      proxy  docker.io/library/caddy@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0
+        = caddy:alpine, caddy:2.11.9-alpine, caddy:2.11-alpine, caddy:2-alpine (Docker Hub, as of now; tags can move)
+      vaultwarden  docker.io/vaultwarden/server@sha256:4fe17f415f90087377d37c755e0ea3cf189dcc6794e49cdd2a9adbb4937d9e1f
+        = vaultwarden/server:1.37.5, vaultwarden/server:latest (Docker Hub, as of now; tags can move)
+Result:  PASS

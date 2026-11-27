@@ -1,7 +1,7 @@
 # Attested Vaultwarden
 
 > **Status: research prototype.** It has run live on Phala Cloud (Intel
-> TDX) for three releases and verified end to end, with relay and tamper
+> TDX) for four releases (latest: 2026.11.4-phala-dev, 2026-11-27) and verified end to end, with relay and tamper
 > demos; there is no permanent deployment (the demo VM is stopped, so
 > `vault.facundo.dev` is usually offline).
 > Nothing here is production-ready and nothing here is "secure for your
@@ -71,6 +71,13 @@ cargo run --release -p attested-vw-verify -- \
   https://vault.example.com --policy policy/<release>.toml
 ```
 
+No toolchain at hand? `web/` builds a single-file browser verifier
+(`web/build.sh` → `web/dist/index.html`). It runs the same checks in
+WebAssembly, except that a page cannot see its own TLS certificate, so the
+per-connection key check is replaced by a Certificate Transparency check
+over every valid certificate for the name: `PASS (browser mode: CT-based
+binding)`. Weaker than the CLI; see [web/README.md](web/README.md).
+
 Recorded output from the live run on 2026-11-26
 ([demo/live/verify.expected.txt](demo/live/verify.expected.txt), long values shortened):
 
@@ -112,11 +119,12 @@ Step-by-step for non-experts: [docs/VERIFY.md](docs/VERIFY.md).
 * **OS measurements depend on the VM shape.** The MRTD in dstack's release
   notes does not match a Phala VM (different QEMU page-add behaviour), so
   each release's MRTD/RTMR0-2 are recomputed with `dstack-mr` from the
-  published image for the exact VM shape (`policy/measure/`). For both
-  live releases all four reproduced exactly
+  published image for the exact VM shape (`policy/measure/`). For every
+  live Phala release all four reproduced exactly
   ([2026.11.0](policy/2026.11.0-phala-dev.reproduce.txt),
   [2026.11.1](policy/2026.11.1-phala-dev.reproduce.txt),
-  [2026.11.2](policy/2026.11.2-phala-dev.reproduce.txt)).
+  [2026.11.2](policy/2026.11.2-phala-dev.reproduce.txt),
+  [2026.11.4](policy/2026.11.4-phala-dev.reproduce.txt)).
 * **Phala's KMS is trusted** to release the disk key only to this app; the
   data disk has no rollback protection.
 * **The sidecar image is private** on GHCR in the current deployment; a
@@ -128,8 +136,8 @@ Step-by-step for non-experts: [docs/VERIFY.md](docs/VERIFY.md).
   sidecar has a configfs-tsm provider, but both are tested only with
   synthetic reports and a fake configfs directory; there is no SNP guest
   image and no SNP deployment ([docs/SNP.md](docs/SNP.md)).
-* **Google Cloud Confidential Space is implemented, never run on GCP.** It
-  trusts Google's attestation service (the verifier checks a Google-signed
+* **Google Cloud Confidential Space was run live once (2026-11-27) and
+  torn down.** It trusts Google's attestation service (the verifier checks a Google-signed
   token, not a hardware quote, and Google is also the host) and has no
   persistence: every restart is an empty vault
   ([docs/GCP_CONFIDENTIAL_SPACE.md](docs/GCP_CONFIDENTIAL_SPACE.md)).
@@ -137,13 +145,35 @@ Step-by-step for non-experts: [docs/VERIFY.md](docs/VERIFY.md).
   SMT, dynamic platform and cached keys, and run with container logs on
   except 2026.11.0. From 2026.11.2 policies pin the dstack `app_id` and
   require the encrypted-disk event.
-* **The demo domain fails the CT check.** `facundo.dev` is on Cloudflare,
-  whose wildcard `*.facundo.dev` certificates are also valid for
-  `vault.facundo.dev` and were never attested
-  ([demo/live/ct-check.expected.txt](demo/live/ct-check.expected.txt)).
-  The verifier still catches a server using them on your connection, but
-  "every certificate for this name is attested" needs a domain with no
-  outside wildcard (THREAT_MODEL R2).
+* **The demo domain fails the CT check until about the end of January
+  2027.** `facundo.dev` was behind Cloudflare, whose Universal SSL wildcard
+  certificates for `*.facundo.dev` (keys held by Cloudflare, never
+  attested) are also valid for `vault.facundo.dev`. Universal SSL was turned
+  off for the zone on 2026-11-27, so no new ones are issued, but the five
+  existing ones stay valid until they expire (the last on 2027-01-31;
+  [demo/live/ct-check.expected.txt](demo/live/ct-check.expected.txt)).
+  The verifier still catches a server using them on your connection.
+* **CAA is pinned at the name, not at the zone.** `vault.facundo.dev` is now
+  an A record with its own CAA set: only Let's Encrypt, only the ACME
+  account that lives in the CVM, only TLS-ALPN-01, no wildcards. The zone
+  apex has no CAA record, so a wildcard `*.facundo.dev` (which covers the
+  name) can still be issued by any CA to whoever controls the DNS zone;
+  `demo/live/caa-check.sh` reports exactly that
+  ([recorded](demo/live/caa-check-vault.facundo.dev.expected.txt)). CAA and
+  CT constrain and expose the operator; they do not remove the operator's
+  control of DNS (THREAT_MODEL R2).
+* **Persistent-state precondition.** The verifier cannot see what earlier
+  composes of the same app id left on the data disk. From 2026.11.4 the TLS
+  key and certificate live in memory only (a fresh key at every boot,
+  checked live) and Vaultwarden ignores a planted `config.json`, but the
+  ACME account key, the vault database and the token-signing key are still
+  on that disk ([THREAT_MODEL §1](docs/THREAT_MODEL.md)).
+* **The browser verifier binds through CT, not through your connection.**
+  It shows that every publicly logged, currently valid certificate for the
+  name has an attested key. That is detection with a log-delay window, it
+  trusts Cert Spotter's answer, and it says nothing about clients that do
+  not enforce CT. On the demo domain it currently FAILS on that one line,
+  for the wildcard reason above.
 * **Physical attacks** on TDX memory (TEE.fail, DDRop and similar
   interposers) are out of scope, and they can forge quotes.
 * The published code itself can be wrong. Attestation proves *which* code
@@ -159,6 +189,7 @@ Step-by-step for non-experts: [docs/VERIFY.md](docs/VERIFY.md).
 | `deploy/local/` | INSECURE mock stack + e2e test (no TEE needed) |
 | `deploy/dstack/` | dstack compose template, `render.sh`, simulator test |
 | `deploy/gcp-cs/` | Google Cloud Confidential Space: single workload image, `build.sh`, `deploy.sh` (prints commands, runs nothing); undeployed |
+| `web/` | Single-file browser verifier (verifier core as WebAssembly, CT-based TLS binding), build script, headless test |
 | `policy/` | Release policies, their reviewed app-compose documents, measurement tooling |
 | `demo/` | Live smoke, policy bootstrap, relay and tamper demos with recorded outputs |
 | `docs/` | Threat model, architecture, Phala and self-hosting runbooks, verification guide, related work, decision log |

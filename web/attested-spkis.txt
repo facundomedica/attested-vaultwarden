@@ -12,3 +12,7 @@
 # is treated as living inside an attested VM.
 #
 # <host> <spki sha-256 hex> [# comment]
+vault.facundo.dev bcc603a6ba95d56d1f7d4481516b0fa27dc6bb1efa7f0713d11268dbaa1fb52d # 2026-11-26, demo/live/verify.expected.txt
+vault.facundo.dev 2879bcfd07b973fb904fd58e505a2e07dca2a54bdc736e6950529b22ffc9b34c # 2026-11-26/27, verify-2026.11.1 / 2026.11.2
+vault.facundo.dev a8ecc85cdf94eab769ffb888667415bff63a03a9d10b429f7474c33ed1973de5 # 2026-11-27, verify-2026.11.4.expected.txt
+vault.facundo.dev e7496d20a2948c70166f8450339d45ae86b6c3e14161bcd3962f7d9b24dbb8bb # 2026-11-27, verify-2026.11.4-after-restart.expected.txt

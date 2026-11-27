@@ -1,0 +1,76 @@
+# Release policy drafted 2026-11-27T10:54Z by demo/live/bootstrap-policy.sh from https://vault.facundo.dev.
+# MRTD/RTMR0-2 were observed from the live quote and INDEPENDENTLY REPRODUCED
+# with dstack-mr (built at dstack 350a0a73) from the published image
+# dstack-0.6.5.tar.gz (sha256 f33965e0…, os_image_hash 4771a29e…, GitHub
+# release mkosi-os-v0.6.5) for VM shape cpu=1, memory=2G, qemu 8.2.2,
+# hotplug_off=false (Phala tdx.small; the shape in the served vm_config).
+# All four match (same values as 2026.11.0 to 2026.11.2): this release
+# supports claim C2.
+# Transcript: policy/2026.11.4-phala-dev.reproduce.txt
+#   policy/measure/measure-tdx.sh dstack-0.6.5.tar.gz <sha256> <os_image_hash> \
+#     --cpu 1 --memory 2G --qemu-version 8.2.2 --policy <this file> -- --hotplug-off false
+# Development release, same CVM and app id as 2026.11.2-phala-dev. Changes in
+# the measured app-compose (diff against policy/2026.11.2-phala-dev.app-compose.json):
+#   * sidecar image rebuilt from commit 9f723df (per-client rate limit etc.;
+#     attest-sidecar/reproducible-build.sh 9f723df gives the pinned digest);
+#   * TLS certificates and keys on a tmpfs volume (caddy_certs): a new key
+#     and certificate at every boot, nothing of them on the data disk;
+#   * Vaultwarden CONFIG_FILE on a tmpfs (a planted /data/config.json is ignored);
+#   * Access-Control-Allow-Origin on the attestation route (browser verifier);
+#   * Caddyfile config named caddyfile_<rev>;
+#   * pre-launch script: removes containers and networks left on the data
+#     disk before compose starts, then the GHCR login (D-049).
+# New pins in this policy: public_logs, tdx.min_tcb_eval_data_number (the
+# number observed at drafting time), tdx.mr_config_id (observed; version 3
+# form, 0x03 ‖ 32 bytes, which the verifier cannot recompute and therefore
+# pins by value).
+# DNS / WebPKI state at release time (DECISIONS D-052): vault.facundo.dev is
+# an A record with its own CAA set (issue letsencrypt.org, accounturi =
+# the in-CVM ACME account 4048885521, validationmethods=tls-alpn-01;
+# issuewild ";"). Cloudflare Universal SSL was turned off for facundo.dev
+# on 2026-11-27, but 5 earlier Cloudflare wildcard certificates
+# (*.facundo.dev, keys held by Cloudflare) remain valid until they expire
+# (about January 2027), and the zone apex has no CAA record, so wildcard
+# issuance for *.facundo.dev is not restricted (demo/live/caa-check-vault.facundo.dev.expected.txt,
+# demo/live/ct-check.expected.txt: both FAIL for that reason).
+# Still not for real users: logs on (public_logs = true), SMT / dynamic
+# platform / cached keys accepted, and the persistent-state precondition of
+# docs/THREAT_MODEL.md section 1 (the data disk was written by earlier
+# releases of the same app id).
+# TCB status / advisories at drafting time: UpToDate
+# Reviewed app-compose: policy/2026.11.4-phala-dev.app-compose.json
+schema = 1
+release = "2026.11.4-phala-dev"
+date = "2026-11-27"
+platform = "tdx"
+pre_launch_script_sha256 = "ae8b71d8d7f818c9f2293c7c51e83164e19c2d7d6b2ed7a33e4566a368b2d380"
+allowed_envs = ["GHCR_READ_TOKEN"]
+public_logs = true
+
+[tdx]
+mrtd = "2a674327c50218dba880066b349b8d559d749ed68dce33fd651c184a877d084b07a9e583767a7ad5da13ed91deec2b70"
+rtmr0 = "68102e7b524af310f7b7d426ce75481e36c40f5d513a9009c046e9d37e31551f0134d954b496a3357fd61d03f07ffe96"
+rtmr1 = "2f72a4db2f7de90adeabe55607b0c1cf209fc243bc773f5862d1b00d3bb198e835e99d502e90a24005f0d1368dd24f29"
+rtmr2 = "3d9910a33a26a769c5146dea31bea0d2924a7746ad09e121dabe709eddd5c647716f4d89279e0e24d8dbb93f9cdb605b"
+compose_hash = "65a901cb3445c4c19634ef4cc4a86f11db5884e6bd069ad74385457740ae273f"
+accepted_tcb_status = ["UpToDate"]
+allow_smt = true
+allow_dynamic_platform = true
+allow_cached_keys = true
+key_provider = "{\"name\":\"kms\",\"id\":\"3059301306072a8648ce3d020106082a8648ce3d03010703420004e8e325a477b0bf22800dc927a46c68638938d283fe73d1f9028eeac7028193f3470122193875f598b7addc503e534712ab437b4120776bbac32ddf8897f844ee\"}"
+app_id = "8a1aa54cc59424f894b82a5cad0d402b047ee0ab"
+require_storage_encrypted = true
+min_tcb_eval_data_number = 20
+mr_config_id = "030f12dbdb28a307bf1d671fdbd1fa0bc5cd7f72ebb78215ed6e09e376f5044d14000000000000000000000000000000"
+
+[[images]]
+service = "attest"
+image = "ghcr.io/facundomedica/attest-sidecar@sha256:00055017952f7eae1c2ef13aab762a682a5738cf7db559e5ffb5786bb4894463"
+
+[[images]]
+service = "proxy"
+image = "docker.io/library/caddy@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0"
+
+[[images]]
+service = "vaultwarden"
+image = "docker.io/vaultwarden/server@sha256:4fe17f415f90087377d37c755e0ea3cf189dcc6794e49cdd2a9adbb4937d9e1f"

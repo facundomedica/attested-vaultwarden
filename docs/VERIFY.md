@@ -98,6 +98,43 @@ PASS does **not** mean:
 If you get `Result: PASS (INSECURE MOCK, proves nothing)`, you are looking at
 a local test setup with no real hardware: ignore it.
 
+## Verify from a browser
+
+If you cannot install the command-line verifier, open the browser verifier
+(`web/dist/index.html`, built with `web/build.sh`; get it from a source you
+trust, never from the server you are checking), enter the domain and press
+**Verify**. It prints the same ✓/✗ lines.
+
+It is weaker than the command-line verifier in one way. A web page cannot
+see the TLS certificate of its own connection, so it cannot check that
+*your connection* ends inside the attested VM. Instead it checks that
+*every* certificate currently valid for the domain in the public
+Certificate Transparency logs belongs to a key that was attested inside the
+VM. If so, a browser can only reach an attested VM under that name. The
+result then reads `PASS (browser mode: CT-based binding)`.
+
+What that leaves open: a certificate issued in the last few minutes may not
+be visible yet (the check detects, it does not prevent); the certificate
+list comes from one monitor, Cert Spotter, which is trusted to be complete;
+keys attested in the past count for as long as their certificates are
+valid; Intel collateral is fetched from Phala's mirror because Intel's
+service does not answer web pages (it is Intel-signed and verified either
+way). Servers older than release 2026.11.3 cannot be checked from a
+browser. Details: `web/README.md`.
+
+On the demo domain `vault.facundo.dev` the page currently ends in FAIL with
+every line ✓ except the Certificate Transparency line: Cloudflare wildcard
+certificates for `*.facundo.dev`, issued before 2026-11-27, remain valid
+until 2027-01-31 (recorded run: `web/testdata/live-2026-11-27-vault.facundo.dev.json`).
+That is the correct outcome, not a bug: someone outside the VM holds keys
+that browsers accept for the name.
+
+The image list under "Images pinned and allowlisted" shows each service
+with its full digest. The command-line verifier also asks Docker Hub which
+tags point at each digest right now (`= vaultwarden/server:1.37.5 (Docker
+Hub, as of now; tags can move)`); that line is a convenience, never part of
+the result, and `--no-registry-lookup` turns it off.
+
 ## If something fails
 
 * **TLS key bound ✗ and report_data ✗, everything else ✓**: the server's

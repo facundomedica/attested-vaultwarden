@@ -1,11 +1,12 @@
 CAA for vault.facundo.dev (RFC 8659 search; resolvers: 1.1.1.1 8.8.8.8)
-  vault.facundo.dev: no CAA (CNAME to gateway.dstack-pha1-prod5.phala.network, none there either)
-  facundo.dev: no CAA
-  dev: no CAA
-  ✗ vault.facundo.dev: no CAA record at the name or any parent: every CA may issue, for any account
+  vault.facundo.dev: 2 CAA record(s)
+    0 issue "letsencrypt.org; accounturi=https://acme-v02.api.letsencrypt.org/acme/acct/4048885521; validationmethods=tls-alpn-01"
+    0 issuewild ";"
+  governed by the set at vault.facundo.dev
+  ✓ vault.facundo.dev: issue allows only letsencrypt.org, accounturi=https://acme-v02.api.letsencrypt.org/acme/acct/4048885521, validationmethods=tls-alpn-01
 CAA for *.facundo.dev (wildcard that covers vault.facundo.dev; search starts at facundo.dev)
   facundo.dev: no CAA
   dev: no CAA
   ✗ *.facundo.dev: no CAA record at facundo.dev or any parent: every CA may issue a wildcard
-CAA: FAIL: 2 problem(s): certificates valid for vault.facundo.dev can be issued outside account https://acme-v02.api.letsencrypt.org/acme/acct/4048885521
-caa exit 1
+CAA: FAIL: 1 problem(s): certificates valid for vault.facundo.dev can be issued outside account https://acme-v02.api.letsencrypt.org/acme/acct/4048885521
+exit 1

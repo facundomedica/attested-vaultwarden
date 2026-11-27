@@ -166,12 +166,12 @@ What was run, on macOS arm64, rustc 1.97.1, wasm-bindgen 0.2.130, node 22:
   `api.certspotter.com` answers 200, `hub.docker.com` is blocked (no CORS),
   as the page expects.
 * A run against a name that does not answer
-  (`vault.warden.facundo.dev` before the deployment was up) gives one
+  (`vault.facundo.dev` before the deployment was up) gives one
   `✗ Fetch attestation: could not reach …` line and FAIL.
 
 ### Live run against a real deployment: NOT DONE
 
-`https://vault.warden.facundo.dev` (release 2026.11.3, the first with CORS on
+`https://vault.facundo.dev` (release 2026.11.3, the first with CORS on
 the attestation endpoint) never answered while this was written (the gateway
 accepted the TCP connection and closed it; the VM was reported stopped), and
 `policy/2026.11.3-phala-dev.toml` did not exist. So **no browser-mode PASS
@@ -186,10 +186,10 @@ To do it once the server is up and the policy is in `policy/`:
 web/build.sh
 # 1. the endpoint must be readable cross-origin:
 curl -s -D - -o /dev/null -H 'Origin: https://example.org' \
-  "https://vault.warden.facundo.dev/.well-known/tee-attestation?nonce=$(openssl rand -hex 32)" \
+  "https://vault.facundo.dev/.well-known/tee-attestation?nonce=$(openssl rand -hex 32)" \
   | grep -i access-control-allow-origin
 # 2. headless, real network (Node does not enforce CORS, hence step 1):
-node web/test/run.mjs --live vault.warden.facundo.dev \
+node web/test/run.mjs --live vault.facundo.dev \
   --record web/testdata/live-2026.11.3.json
 # 3. the recording now replays offline in both suites:
 node web/test/run.mjs && cargo test -p attested-vw-web
@@ -199,64 +199,4 @@ node web/test/run.mjs && cargo test -p attested-vw-web
 Expect a FAIL on the CT line for the first minutes after a new certificate
 is issued (Cert Spotter has not indexed it yet).
 
-## Proposed doc text
-
-Not applied (this branch does not edit `docs/` or `README.md`).
-
-### For `docs/VERIFY.md`, new section "Verify from a browser"
-
-> If you cannot install the command-line verifier, open the browser verifier
-> (`web/dist/index.html`, built with `web/build.sh`; get it from a source you
-> trust, never from the server you are checking), enter the domain and press
-> **Verify**. It prints the same ✓/✗ lines.
->
-> It is weaker than the command-line verifier in one way. A web page cannot
-> see the TLS certificate of its own connection, so it cannot check that
-> *your connection* ends inside the attested VM. Instead it checks that
-> *every* certificate currently valid for the domain in the public
-> Certificate Transparency logs belongs to a key that was attested inside the
-> VM. If so, a browser can only reach an attested VM under that name. The
-> result then reads `PASS (browser mode: CT-based binding)`.
->
-> What that leaves open: a certificate issued in the last few minutes may not
-> be visible yet (the check detects, it does not prevent); the certificate
-> list comes from one monitor, Cert Spotter, which is trusted to be complete;
-> keys attested in the past count for as long as their certificates are
-> valid; Intel collateral is fetched from Phala's mirror because Intel's
-> service does not answer web pages (it is Intel-signed and verified either
-> way). Servers older than release 2026.11.3 cannot be checked from a
-> browser. Details: `web/README.md`.
->
-> The image list under "Images pinned and allowlisted" shows each service
-> with its full digest. The command-line verifier also asks Docker Hub which
-> tags point at each digest right now (`= vaultwarden/server:1.37.5 (Docker
-> Hub, as of now; tags can move)`); that line is a convenience, never part of
-> the result, and `--no-registry-lookup` turns it off.
-
-### For `README.md`
-
-In "Verify it yourself", after the CLI example:
-
-> No toolchain at hand? `web/` builds a single-file browser verifier
-> (`web/build.sh` → `web/dist/index.html`). It runs the same checks in
-> WebAssembly, except that a page cannot see its own TLS certificate, so the
-> per-connection key check is replaced by a Certificate Transparency check
-> over every valid certificate for the name: `PASS (browser mode: CT-based
-> binding)`. Weaker than the CLI; see [web/README.md](web/README.md).
-
-In "Honest limitations", amend the first bullet's detection list or add:
-
-> * **The browser verifier binds through CT, not through your connection.**
->   It shows that every publicly logged, currently valid certificate for the
->   name has an attested key. That is detection with a log-delay window, it
->   trusts Cert Spotter's answer, and it says nothing about clients that do
->   not enforce CT.
-
-In the repository table:
-
-> | `web/` | Single-file browser verifier (verifier core as WebAssembly, CT-based TLS binding), build script, headless test |
-
-### For `docs/THREAT_MODEL.md` R2 (suggestion)
-
-> The browser verifier (`web/`) automates this CT check and makes it part of
-> its verdict, with the caveats in `web/README.md`.
+The user-facing description is in [docs/VERIFY.md](../docs/VERIFY.md) ("Verify from a browser") and the top-level README.

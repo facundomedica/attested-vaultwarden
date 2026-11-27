@@ -1,8 +1,9 @@
 # Deploying on Phala Cloud (managed dstack, Intel TDX)
 
 > Status: **executed on 2026-11-26 and 2026-11-27** (releases
-> `2026.11.0-phala-dev`, `2026.11.1-phala-dev` and `2026.11.2-phala-dev`,
-> see [DECISIONS.md](DECISIONS.md) D-043, D-046, D-048).
+> `2026.11.0-phala-dev`, `2026.11.1-phala-dev`, `2026.11.2-phala-dev` and
+> `2026.11.4-phala-dev`, see [DECISIONS.md](DECISIONS.md) D-043, D-046,
+> D-048, D-052).
 > Research prototype: do not store real passwords. Phala facts checked
 > 2026-11-26 (Phala docs, CLI v1.2.9 source; v1.2.8 used, see below; dstack
 > `next`); D-037–D-041. The deployed OS image is dstack 0.6.5.
@@ -115,10 +116,9 @@ pre-launch.sh -e registry.env --no-dev-os`.)
   and Caddy kept the old configuration under the new compose hash). For
   `phala-private` the GHCR login follows in the same file. Pin the printed
   `pre_launch_script_sha256` in the policy. `--no-dev-os` matters for the
-  reason given in step 1b. Not yet run on Phala: check on the first deploy
-  that the Docker daemon is up when the script runs (Phala's own default
-  script calls `docker image prune` at the same point) and that the boot
-  log shows the removals.
+  reason given in step 1b. Run on Phala for 2026.11.4 (2026-11-27): the
+  Docker daemon is up when the script runs and the boot log shows the
+  removals.
 * `--public-logs` / `--no-public-logs`: measured into the app-compose, so
   it is part of the release. The CLI describes it as making CVM logs
   *publicly* accessible. Development releases keep logs **on** (with logs
@@ -150,8 +150,19 @@ prints the records. **(you)** at your DNS provider:
 
 | Record | Name | Value |
 |--------|------|-------|
-| CNAME | `vault.<your-domain>` | `gateway.<gateway base domain>` (e.g. `gateway.dstack-pha1-prod5.phala.network`); Cloudflare: **DNS only** |
+| A | `vault.<your-domain>` | the address of `gateway.<gateway base domain>` (`dig +short gateway.dstack-pha1-prod5.phala.network`; 66.220.6.105 on 2026-11-27); Cloudflare: **DNS only** |
 | TXT | `_dstack-app-address.vault.<your-domain>` | `<app-id>:443` |
+| CAA | `vault.<your-domain>` | `0 issue "letsencrypt.org; accounturi=<the CVM's ACME account URL>; validationmethods=tls-alpn-01"` |
+| CAA | `vault.<your-domain>` | `0 issuewild ";"` |
+
+`phala domains add` suggests a CNAME to the gateway. A CNAME works, but a
+name with a CNAME can hold no CAA record, so use the **A record** (and
+re-check the gateway address from time to time: it is now copied into your
+zone). The account URL is in Caddy's log (`"using ACME account"`,
+`account_id`) after the first certificate; add the CAA records then, and
+check with `demo/live/caa-check.sh vault.<your-domain> <account URL>`. The
+script also reports whether a wildcard of the parent domain can still be
+issued: that is decided by the parent's CAA set, not by these records.
 
 then `phala domains verify vault.<your-domain> --cvm-id <cvm-id>`.
 
@@ -166,8 +177,29 @@ Observed on the 2026-11-26 run (D-043):
   booted, so Caddy's first TLS-ALPN-01 attempts failed (`Error getting
   validation data`); it retried by itself and got the certificate once the
   new TXT value had propagated. Update DNS right after `phala deploy`.
-* `domains check` suggests a CAA `0 issue "letsencrypt.org"` record;
-  optional (and later: pin `accounturi` to the CVM's ACME account).
+* `domains check` suggests a CAA `0 issue "letsencrypt.org"` record; the
+  table above pins it further.
+
+Observed on 2026-11-27 (D-052):
+* With the A record and the CAA set in place, Caddy obtained its
+  certificate through TLS-ALPN-01 at the first attempt after an in-place
+  update, and again after a restart (2026.11.4 keeps certificates on a
+  tmpfs, so **every boot spends one certificate** of Let's Encrypt's five
+  identical certificates per week).
+* **A name two labels below the zone (`vault.warden.<domain>`) was not
+  routed.** The domain was bound and reported `DNS verified / ROUTING ok`
+  by `phala domains ls`, with the same CNAME and TXT layout one level
+  deeper, but connections did not reach the CVM. Cause unknown (not
+  investigated further; not confirmed with Phala). Use a name directly
+  under the zone.
+* If the first production attempt fails, Caddy falls back to Let's
+  Encrypt's staging CA, which is a different account and is refused by the
+  CAA `accounturi`; it does not return to production by itself. Confirm
+  routing (`openssl s_client -servername <name> -connect <name>:443 -alpn
+  acme-tls/1` reaches Caddy), then restart the CVM once.
+* The pre-launch cleanup ran: the serial log shows the three old container
+  ids removed and `Deleted Networks:` before `docker compose up`, and the
+  Docker daemon was up at that point.
 
 ## 6. Write the release policy
 
