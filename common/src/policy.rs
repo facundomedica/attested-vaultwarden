@@ -192,6 +192,16 @@ pub enum SnpComposeBinding {
     /// image pinned by `measurement` refuses to run a config whose hash is
     /// not its own `HOST_DATA` (docs/SNP.md).
     HostData,
+    /// For hosts that do not let the guest owner set `HOST_DATA` (Servury
+    /// Blackbox, docs/SNP_SERVURY.md). SHA-256(app-compose) is written into
+    /// the measured kernel command line (`avw.compose_sha256=`), so the
+    /// launch `MEASUREMENT` covers it, and the image pinned by
+    /// `measurement` refuses to start a document with another hash. The
+    /// policy states the pair (`measurement`, `compose_hash`); that the
+    /// first covers the second is checked by rebuilding the image
+    /// (`deploy/sev-snp/build.sh`), not by the verifier. `HOST_DATA` must
+    /// equal `host_data`, or be all zero when the policy has none.
+    MeasuredCmdline,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -205,9 +215,17 @@ pub struct SevSnpPolicy {
     pub min_tcb: SnpMinTcb,
     /// How the compose document is bound. Required: there is no default.
     pub compose_binding: SnpComposeBinding,
-    /// Expected `HOST_DATA` (32 bytes, hex) = SHA-256 of the app-compose
-    /// document this release pins.
-    pub host_data: String,
+    /// Expected `HOST_DATA` (32 bytes, hex). `host-data` mode: required,
+    /// non-zero, = SHA-256 of the app-compose document this release pins.
+    /// `measured-cmdline` mode: optional; absent means the report must carry
+    /// an all-zero `HOST_DATA`.
+    #[serde(default)]
+    pub host_data: Option<String>,
+    /// `measured-cmdline` mode only (required there, refused in `host-data`
+    /// mode): SHA-256 of the app-compose document (32 bytes, hex) that the
+    /// measured kernel command line carries.
+    #[serde(default)]
+    pub compose_hash: Option<String>,
     /// VMPLs a report may be requested from. Default `[0]`.
     #[serde(default = "default_vmpl")]
     pub allowed_vmpl: Vec<u32>,
@@ -401,9 +419,38 @@ impl Policy {
                     .as_ref()
                     .ok_or_else(|| invalid("sev_snp", "required when platform = \"sev-snp\""))?;
                 check_hex("sev_snp.measurement", &s.measurement, 48)?;
-                check_hex("sev_snp.host_data", &s.host_data, 32)?;
-                if s.host_data.bytes().all(|b| b == b'0') {
-                    return Err(invalid("sev_snp.host_data", "must not be all zero"));
+                if let Some(h) = &s.host_data {
+                    check_hex("sev_snp.host_data", h, 32)?;
+                }
+                if let Some(h) = &s.compose_hash {
+                    check_hex("sev_snp.compose_hash", h, 32)?;
+                }
+                match s.compose_binding {
+                    SnpComposeBinding::HostData => {
+                        let h = s.host_data.as_deref().ok_or_else(|| {
+                            invalid(
+                                "sev_snp.host_data",
+                                "required when compose_binding = \"host-data\"",
+                            )
+                        })?;
+                        if h.bytes().all(|b| b == b'0') {
+                            return Err(invalid("sev_snp.host_data", "must not be all zero"));
+                        }
+                        if s.compose_hash.is_some() {
+                            return Err(invalid(
+                                "sev_snp.compose_hash",
+                                "not used when compose_binding = \"host-data\" (host_data is the compose hash)",
+                            ));
+                        }
+                    }
+                    SnpComposeBinding::MeasuredCmdline => {
+                        if s.compose_hash.is_none() {
+                            return Err(invalid(
+                                "sev_snp.compose_hash",
+                                "required when compose_binding = \"measured-cmdline\"",
+                            ));
+                        }
+                    }
                 }
                 if s.allowed_vmpl.is_empty() || s.allowed_vmpl.iter().any(|v| *v > 3) {
                     return Err(invalid("sev_snp.allowed_vmpl", "must list VMPLs 0-3"));
@@ -610,12 +657,45 @@ mod tests {
             format!("{full}allowed_vmpl = []\n"),
             format!("{full}allowed_vmpl = [4]\n"),
             format!("{full}id_key_digest = \"00\"\n"),
+            format!("{full}compose_hash = \"{h}\"\n"),
+            "compose_binding = \"measured-cmdline\"\n".to_owned(),
+            format!("compose_binding = \"measured-cmdline\"\nhost_data = \"{h}\"\n"),
+            "compose_binding = \"measured-cmdline\"\ncompose_hash = \"11\"\n".to_owned(),
         ] {
             assert!(
                 Policy::from_toml(&base.replace("COMPOSE", &bad)).is_err(),
                 "{bad}"
             );
         }
+    }
+
+    #[test]
+    fn sev_snp_measured_cmdline_policy() {
+        let z48 = "ab".repeat(48);
+        let h = "11".repeat(32);
+        let base = format!(
+            "schema = 1\nrelease = \"r\"\ndate = \"d\"\nplatform = \"sev-snp\"\n\
+             [sev_snp]\nmeasurement = \"{z48}\"\ncompose_binding = \"measured-cmdline\"\n\
+             compose_hash = \"{h}\"\nEXTRA\
+             [sev_snp.min_tcb]\nbootloader = 4\ntee = 0\nsnp = 24\nmicrocode = 219\n\
+             [[images]]\nservice = \"vw\"\nimage = \"a@sha256:{D}\"\n"
+        );
+        let s = Policy::from_toml(&base.replace("EXTRA", ""))
+            .expect("valid")
+            .sev_snp
+            .expect("section");
+        assert_eq!(s.compose_binding, SnpComposeBinding::MeasuredCmdline);
+        assert_eq!(s.compose_hash.as_deref(), Some(h.as_str()));
+        // SMT stays refused unless the policy says so, in this mode too.
+        assert!(s.host_data.is_none() && !s.allow_smt);
+        // An explicit HOST_DATA pin (zero or not) is accepted in this mode.
+        for extra in [
+            format!("host_data = \"{D}\"\n"),
+            format!("host_data = \"{h}\"\n"),
+        ] {
+            assert!(Policy::from_toml(&base.replace("EXTRA", &extra)).is_ok());
+        }
+        assert!(Policy::from_toml(&base.replace("EXTRA", "host_data = \"00\"\n")).is_err());
     }
 
     #[test]

@@ -52,7 +52,8 @@ pub(crate) fn base_policy(min: SnpMinTcb) -> SevSnpPolicy {
         measurement: String::new(),
         min_tcb: min,
         compose_binding: SnpComposeBinding::HostData,
-        host_data: String::new(),
+        host_data: None,
+        compose_hash: None,
         allowed_vmpl: vec![0],
         allow_smt: false,
         require_alias_check: true,
@@ -102,7 +103,7 @@ fn fx() -> Fx {
     .to_string();
     let sev_snp = SevSnpPolicy {
         measurement: hex::encode(MEASUREMENT),
-        host_data: hex::encode(compose::compose_hash(app_compose.as_bytes())),
+        host_data: Some(hex::encode(compose::compose_hash(app_compose.as_bytes()))),
         ..base_policy(SnpMinTcb {
             fmc: None,
             bootloader: 3,
@@ -226,7 +227,10 @@ fn honest_synthetic_deployment_passes() {
     assert!(ids.contains(&CheckId::HostData) && !ids.contains(&CheckId::EventLog));
     assert_eq!(
         r.observed.snp_host_data.as_deref(),
-        f.policy.sev_snp.as_ref().map(|s| s.host_data.as_str())
+        f.policy
+            .sev_snp
+            .as_ref()
+            .and_then(|s| s.host_data.as_deref())
     );
     assert_eq!(
         r.observed.compose_hash_measured,
@@ -650,4 +654,156 @@ fn kds_urls_for_a_report() {
         ]
     );
     assert!(snp::kds_vcek_urls(snp::AMD_KDS_URL, &[0u8; 10]).is_err());
+}
+
+// --- compose_binding = "measured-cmdline" (Servury Blackbox shape) --------
+//
+// SYNTHETIC as everything above: guest policy 0x30000 (SMT allowed, the
+// value Servury documents), SMT on, HOST_DATA all zero, the compose hash
+// known only through the policy. No report from that platform exists yet.
+
+/// `fx()` turned into a measured-cmdline release.
+fn fx_cmdline() -> Fx {
+    let mut f = fx();
+    let s = snp_mut(&mut f);
+    s.compose_binding = SnpComposeBinding::MeasuredCmdline;
+    s.compose_hash = s.host_data.take();
+    s.allow_smt = true;
+    f.policy.validate().unwrap();
+    f
+}
+
+/// A report as that launch would produce it; `edit` as for `synth`.
+fn synth_cmdline(f: &Fx, edit: impl FnOnce(&mut Vec<u8>)) -> Vec<u8> {
+    synth(f, |r| {
+        r[OFF_POLICY..OFF_POLICY + 8].copy_from_slice(&0x3_0000u64.to_le_bytes());
+        // SMT enabled (bit 0) and ALIAS_CHECK_COMPLETE (bit 5).
+        r[OFF_PLAT_INFO..OFF_PLAT_INFO + 8].copy_from_slice(&0x21u64.to_le_bytes());
+        r[OFF_HOST_DATA..OFF_HOST_DATA + 32].fill(0);
+        edit(r);
+    })
+}
+
+#[test]
+fn measured_cmdline_honest_deployment_passes() {
+    let f = fx_cmdline();
+    let r = run(&f, &synth_cmdline(&f, |_| {}), &f.app_compose);
+    assert!(r.passed(), "{r}");
+    assert_eq!(
+        r.observed.snp_host_data.as_deref(),
+        Some("00".repeat(32).as_str())
+    );
+    assert_eq!(
+        r.observed.compose_hash_measured,
+        f.policy
+            .sev_snp
+            .as_ref()
+            .and_then(|s| s.compose_hash.clone())
+    );
+    assert_eq!(
+        r.observed.compose_hash_measured,
+        r.observed.compose_hash_served
+    );
+    assert!(r.to_string().contains("measured kernel command line"));
+}
+
+/// Guest policy 0x30000 allows SMT: the release policy has to say so.
+#[test]
+fn measured_cmdline_smt_needs_explicit_allow() {
+    let mut f = fx_cmdline();
+    snp_mut(&mut f).allow_smt = false;
+    let r = run(&f, &synth_cmdline(&f, |_| {}), &f.app_compose);
+    assert!(!r.passed());
+    assert!(r.to_string().contains("allows SMT"), "{r}");
+}
+
+#[test]
+fn measured_cmdline_unexpected_host_data_fails() {
+    let f = fx_cmdline();
+    // Any non-zero value, including the hash of the served document (the
+    // host-data design's shape), is refused when the policy pins none.
+    let h = compose::compose_hash(f.app_compose.as_bytes());
+    for hd in [[0xEE; 32], h] {
+        let rep = synth_cmdline(&f, |r| {
+            r[OFF_HOST_DATA..OFF_HOST_DATA + 32].copy_from_slice(&hd)
+        });
+        let r = run(&f, &rep, &f.app_compose);
+        assert_eq!(
+            failed(&r),
+            vec![CheckId::HostData, CheckId::ComposeHash],
+            "{r}"
+        );
+    }
+}
+
+#[test]
+fn measured_cmdline_pinned_host_data() {
+    let mut f = fx_cmdline();
+    snp_mut(&mut f).host_data = Some("ee".repeat(32));
+    f.policy.validate().unwrap();
+    let rep = synth_cmdline(&f, |r| r[OFF_HOST_DATA..OFF_HOST_DATA + 32].fill(0xEE));
+    assert!(run(&f, &rep, &f.app_compose).passed());
+    let r = run(&f, &synth_cmdline(&f, |_| {}), &f.app_compose);
+    assert_eq!(
+        failed(&r),
+        vec![CheckId::HostData, CheckId::ComposeHash],
+        "{r}"
+    );
+    // A malformed pin (policy built in code, not validated) never means
+    // "expect zero".
+    snp_mut(&mut f).host_data = Some("zz".into());
+    assert!(!run(&f, &synth_cmdline(&f, |_| {}), &f.app_compose).passed());
+}
+
+#[test]
+fn measured_cmdline_wrong_measurement_binds_nothing() {
+    let f = fx_cmdline();
+    let rep = synth_cmdline(&f, |r| r[OFF_MEASUREMENT + 47] ^= 0x80);
+    let r = run(&f, &rep, &f.app_compose);
+    assert_eq!(
+        failed(&r),
+        vec![
+            CheckId::Measurements,
+            CheckId::HostData,
+            CheckId::ComposeHash
+        ],
+        "{r}"
+    );
+}
+
+#[test]
+fn measured_cmdline_served_document_must_hash_to_the_pin() {
+    let f = fx_cmdline();
+    let other = f.app_compose.replace("\"snp\"", "\"evil\"");
+    let r = run(&f, &synth_cmdline(&f, |_| {}), &other);
+    assert_eq!(failed(&r), vec![CheckId::ComposeHash], "{r}");
+    assert!(r.to_string().contains("not what runs"));
+}
+
+#[test]
+fn measured_cmdline_keeps_the_launch_checks() {
+    let f = fx_cmdline();
+    // Debug bit (19) in the guest policy; VMPL 1; missing alias check.
+    for edit in [
+        (|r: &mut Vec<u8>| r[OFF_POLICY + 2] |= 0x08) as fn(&mut Vec<u8>),
+        |r| r[OFF_VMPL] = 1,
+        |r| r[OFF_PLAT_INFO] = 0x01,
+    ] {
+        let r = run(&f, &synth_cmdline(&f, edit), &f.app_compose);
+        assert!(!r.passed(), "{r}");
+    }
+    // TCB minimum above the report's.
+    let mut f = fx_cmdline();
+    snp_mut(&mut f).min_tcb.snp = 255;
+    assert!(!run(&f, &synth_cmdline(&f, |_| {}), &f.app_compose).passed());
+}
+
+/// A policy without compose_hash (built in code) fails closed.
+#[test]
+fn measured_cmdline_without_compose_hash_fails() {
+    let mut f = fx_cmdline();
+    snp_mut(&mut f).compose_hash = None;
+    let r = run(&f, &synth_cmdline(&f, |_| {}), &f.app_compose);
+    let bad = failed(&r);
+    assert!(bad.contains(&CheckId::HostData) && bad.contains(&CheckId::ComposeHash));
 }

@@ -12,7 +12,9 @@
 //! | `ATTEST_INSECURE_MOCK` | must be `1` for `mock` to start |
 //! | `ATTEST_LISTEN` | listen address, default `0.0.0.0:8081` |
 //! | `ATTEST_CERT_PATH` | PEM file whose first certificate is the TLS leaf |
-//! | `ATTEST_APP_COMPOSE_PATH` | app-compose document (mock and sev-snp; dstack reads it from the guest agent). On sev-snp its SHA-256 must equal the guest's `HOST_DATA` or the sidecar refuses to start |
+//! | `ATTEST_APP_COMPOSE_PATH` | app-compose document (mock and sev-snp; dstack reads it from the guest agent). On sev-snp its SHA-256 must equal the guest's `HOST_DATA` (or the command-line parameter, see `ATTEST_SNP_BINDING`) or the sidecar refuses to start |
+//! | `ATTEST_SNP_BINDING` | sev-snp only: `host-data` (default) or `measured-cmdline` (the document's SHA-256 must equal `avw.compose_sha256=` on the kernel command line; a missing SNP report is then a warning and requests fail with 503) |
+//! | `ATTEST_KERNEL_CMDLINE_PATH` | kernel command line for `measured-cmdline`, default `/proc/cmdline` |
 //! | `ATTEST_TSM_REPORT_DIR` | configfs-tsm report directory, default `/sys/kernel/config/tsm/report` |
 //! | `ATTEST_DSTACK_SOCKET` | guest agent socket, default `/var/run/dstack.sock` |
 //! | `ATTEST_GCP_CS_SOCKET` | Confidential Space launcher socket, default `/run/container_launcher/teeserver.sock` |
@@ -97,13 +99,38 @@ async fn run() -> Result<(), String> {
             let compose_path = env("ATTEST_APP_COMPOSE_PATH")?;
             let app_compose = std::fs::read_to_string(&compose_path)
                 .map_err(|e| format!("reading {compose_path}: {e}"))?;
-            // Refuse to serve a config the host did not bind at launch. The
-            // measured image must already have enforced this (docs/SNP.md).
-            let host_data = provider
-                .host_data()
-                .await
-                .map_err(|e| format!("reading HOST_DATA from an SNP report: {e}"))?;
-            configfs_tsm::check_host_data(&host_data, &app_compose)?;
+            match std::env::var("ATTEST_SNP_BINDING").as_deref() {
+                Err(_) | Ok("host-data") => {
+                    // Refuse to serve a config the host did not bind at
+                    // launch. The measured image must already have enforced
+                    // this (docs/SNP.md).
+                    let host_data = provider
+                        .host_data()
+                        .await
+                        .map_err(|e| format!("reading HOST_DATA from an SNP report: {e}"))?;
+                    configfs_tsm::check_host_data(&host_data, &app_compose)?;
+                }
+                Ok("measured-cmdline") => {
+                    // The hash is on the measured kernel command line
+                    // (docs/SNP_SERVURY.md). The image's init already
+                    // refused to continue on a mismatch; this repeats it.
+                    let path = std::env::var("ATTEST_KERNEL_CMDLINE_PATH")
+                        .unwrap_or_else(|_| "/proc/cmdline".to_owned());
+                    let cmdline = std::fs::read_to_string(&path)
+                        .map_err(|e| format!("reading {path}: {e}"))?;
+                    configfs_tsm::check_cmdline_binding(&cmdline, &app_compose)?;
+                    // Not fatal: without SNP (a local boot test) the sidecar
+                    // still starts, and every request then fails with 503.
+                    if let Err(e) = provider.host_data().await {
+                        eprintln!(
+                            "attest-sidecar: WARNING: NO SNP REPORT AVAILABLE ({e}). \
+                             This is not an SEV-SNP guest with the sev-guest driver; \
+                             every attestation request will fail with 503."
+                        );
+                    }
+                }
+                Ok(other) => return Err(format!("unknown ATTEST_SNP_BINDING `{other}`")),
+            }
             let state = app::State::new(provider, cert_path, app_compose, rates)
                 .map_err(|e| format!("app-compose: {e}"))?;
             app::router(Arc::new(state))

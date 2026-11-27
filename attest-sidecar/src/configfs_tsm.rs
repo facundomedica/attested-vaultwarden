@@ -227,6 +227,36 @@ pub fn check_host_data(host_data: &[u8; 32], app_compose: &str) -> Result<(), St
     Ok(())
 }
 
+/// Kernel command-line parameter that carries SHA-256(app-compose) in the
+/// `measured-cmdline` design (docs/SNP_SERVURY.md).
+pub const CMDLINE_COMPOSE_PARAM: &str = "avw.compose_sha256=";
+
+/// Start-up check for `measured-cmdline`: the kernel command line must carry
+/// exactly one `avw.compose_sha256=<64 hex>` and the document must hash to
+/// it. Returns the reason if not.
+pub fn check_cmdline_binding(cmdline: &str, app_compose: &str) -> Result<(), String> {
+    let mut found = cmdline
+        .split_ascii_whitespace()
+        .filter_map(|w| w.strip_prefix(CMDLINE_COMPOSE_PARAM));
+    let (Some(want), None) = (found.next(), found.next()) else {
+        return Err(format!(
+            "kernel command line must carry exactly one `{CMDLINE_COMPOSE_PARAM}`"
+        ));
+    };
+    if want.len() != 64 || !want.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(format!("`{CMDLINE_COMPOSE_PARAM}` is not 64 hex digits"));
+    }
+    let got = hex::encode(attested_vw_common::compose::compose_hash(
+        app_compose.as_bytes(),
+    ));
+    if !want.eq_ignore_ascii_case(&got) {
+        return Err(format!(
+            "kernel command line binds compose hash {want} but the app-compose document hashes to {got}"
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -413,5 +443,35 @@ mod tests {
                 .contains("hashes to")
         );
         assert!(check_host_data(&h, &format!("{compose} ")).is_err());
+    }
+
+    #[test]
+    fn start_up_cmdline_binding_check() {
+        let compose = r#"{"docker_compose_file":"services: {}"}"#;
+        let h = hex::encode(attested_vw_common::compose::compose_hash(
+            compose.as_bytes(),
+        ));
+        let ok = format!("console=ttyS0 avw.compose_sha256={h} panic=-1 initrd=initrd\n");
+        check_cmdline_binding(&ok, compose).unwrap();
+        check_cmdline_binding(
+            &ok.to_uppercase()
+                .replace("AVW.COMPOSE_SHA256", "avw.compose_sha256"),
+            compose,
+        )
+        .unwrap();
+        assert!(
+            check_cmdline_binding(&ok, &format!("{compose} "))
+                .unwrap_err()
+                .contains("hashes to")
+        );
+        for bad in [
+            "console=ttyS0".to_owned(),
+            format!("avw.compose_sha256={h} avw.compose_sha256={h}"),
+            "avw.compose_sha256=".to_owned(),
+            format!("avw.compose_sha256={}", &h[..62]),
+            format!("xavw.compose_sha256={h}"),
+        ] {
+            assert!(check_cmdline_binding(&bad, compose).is_err(), "{bad}");
+        }
     }
 }

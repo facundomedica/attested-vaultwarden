@@ -112,7 +112,7 @@ impl CheckId {
             CheckId::ReportData => "report_data matches nonce + TLS key",
             CheckId::Measurements => "Firmware / OS measurements",
             CheckId::EventLog => "Runtime event log (RTMR3 replay)",
-            CheckId::HostData => "Launch config binding (SNP HOST_DATA)",
+            CheckId::HostData => "Launch config binding (SNP)",
             CheckId::ComposeHash => "Compose hash (published software)",
             CheckId::Config => "Measured config: known pitfalls absent",
             CheckId::Images => "Images pinned and allowlisted",

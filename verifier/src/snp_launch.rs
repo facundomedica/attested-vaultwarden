@@ -14,6 +14,15 @@
 //!   review obligation on the image whose measurement the policy pins; the
 //!   verifier cannot see it.
 //!
+//! Second mode (`compose_binding = "measured-cmdline"`), for hosts where the
+//! guest owner cannot set `HOST_DATA` (Servury Blackbox,
+//! docs/SNP_SERVURY.md): SHA-256(app-compose) is a parameter on the measured
+//! kernel command line, so `MEASUREMENT` itself covers it. The report has no
+//! field that shows the hash; the verifier takes it from the policy
+//! (`compose_hash`), which is sound only together with the `MEASUREMENT`
+//! pin, and requires `HOST_DATA` to be what the policy expects (all zero
+//! unless pinned).
+//!
 //! Everything here fails closed: a field the report does not carry, or a TCB
 //! layout this code does not understand, is a failure, never a skip.
 
@@ -143,7 +152,8 @@ pub fn launch_problems(r: &AttestationReport, policy: &SevSnpPolicy) -> Vec<Stri
 }
 
 /// `Measurements` and `HostData` checks for an SNP report. Returns the
-/// compose hash the launch is bound to (`HOST_DATA`) if the binding holds;
+/// compose hash the launch is bound to (`HOST_DATA`, or the policy's
+/// `compose_hash` in `measured-cmdline` mode) if the binding holds;
 /// the caller then compares it with the policy and the served document.
 pub fn check_binding(v: &VerifiedReport, policy: &Policy, report: &mut Report) -> Option<[u8; 32]> {
     let r = &v.report;
@@ -211,14 +221,82 @@ pub fn check_binding(v: &VerifiedReport, policy: &Policy, report: &mut Report) -
             );
             Some(r.host_data)
         }
+        SnpComposeBinding::MeasuredCmdline => {
+            // The compose hash is not a report field in this mode: it is
+            // part of the measured command line, so it is known only
+            // through the policy's (measurement, compose_hash) pair.
+            let pinned = sp
+                .compose_hash
+                .as_deref()
+                .and_then(|h| hex::decode(h).ok())
+                .and_then(|b| <[u8; 32]>::try_from(b).ok());
+            let Some(pinned) = pinned else {
+                report.fail(
+                    CheckId::HostData,
+                    "policy has no valid sev_snp.compose_hash (required for measured-cmdline)",
+                );
+                return None;
+            };
+            // The image does not read HOST_DATA here. It is still compared:
+            // a value the policy author did not see is a launch that
+            // differs from the reviewed one. An invalid pin is a failure,
+            // never "expect zero".
+            let want_host_data = match sp.host_data.as_deref() {
+                None => Some([0u8; 32]),
+                Some(h) => hex::decode(h)
+                    .ok()
+                    .and_then(|b| <[u8; 32]>::try_from(b).ok()),
+            };
+            if want_host_data != Some(r.host_data) {
+                report.fail(
+                    CheckId::HostData,
+                    format!(
+                        "HOST_DATA is {} but the policy expects {}",
+                        hex::encode(r.host_data),
+                        sp.host_data
+                            .as_deref()
+                            .unwrap_or("all zero (no host_data pin)")
+                    ),
+                );
+                return None;
+            }
+            if !measured_ok {
+                report.fail(
+                    CheckId::HostData,
+                    "the compose hash is bound only through the launch measurement, and the \
+                     launch measurement / launch policy check failed",
+                );
+                return None;
+            }
+            report.observed.compose_hash_measured = Some(hex::encode(pinned));
+            report.pass(
+                CheckId::HostData,
+                format!(
+                    "compose hash {} is on the measured kernel command line of the image release {} pins (stated by the policy, reproducible by rebuilding the image); HOST_DATA is {} as the policy expects",
+                    hex::encode(pinned),
+                    policy.release,
+                    if r.host_data == [0u8; 32] {
+                        "all zero".to_owned()
+                    } else {
+                        hex::encode(r.host_data)
+                    }
+                ),
+            );
+            Some(pinned)
+        }
     }
 }
 
-/// The policy's expected compose hash for SNP (`host_data`).
+/// The policy's expected compose hash for SNP: `host_data` in `host-data`
+/// mode, `compose_hash` in `measured-cmdline` mode.
 pub fn expected_compose_hash(policy: &Policy) -> Option<&str> {
-    policy.sev_snp.as_ref().map(|s| match s.compose_binding {
-        SnpComposeBinding::HostData => s.host_data.as_str(),
-    })
+    policy
+        .sev_snp
+        .as_ref()
+        .and_then(|s| match s.compose_binding {
+            SnpComposeBinding::HostData => s.host_data.as_deref(),
+            SnpComposeBinding::MeasuredCmdline => s.compose_hash.as_deref(),
+        })
 }
 
 /// VCEK (DER) from a GHCB certificate table (configfs-tsm `auxblob`), if the
