@@ -1,0 +1,91 @@
+# Attested Vaultwarden on SEV-SNP measured direct boot (Servury Blackbox).
+#
+# This file has the shape of a compose file so that the verifier's Images
+# and Config checks read it unchanged, but NO container runtime interprets
+# it. deploy/sev-snp/gen-config.py turns it, at image build time, into the
+# files /init reads inside the initrd:
+#   services.<name>.environment  ->  /etc/attested-vw/<name>.env
+#   configs.caddyfile.content    ->  /etc/attested-vw/Caddyfile
+# and wraps it into app-compose.json, whose SHA-256 is on the measured
+# kernel command line. /init starts each service as the `user` given here,
+# with exactly that environment. `image` names the digest-pinned upstream
+# image the binary was copied from (deploy/sev-snp/Dockerfile); nothing is
+# pulled at run time. The attestation sidecar is built from source and is
+# described in the `sidecar` member of app-compose.json instead.
+#
+# Settings follow deploy/dstack/docker-compose.template.yml (2026.11.4).
+name: attested-vaultwarden-snp
+
+services:
+  vaultwarden:
+    image: docker.io/vaultwarden/server@sha256:4fe17f415f90087377d37c755e0ea3cf189dcc6794e49cdd2a9adbb4937d9e1f # 1.37.5
+    user: "1000:1000"
+    environment:
+      DOMAIN: "https://__DOMAIN__"
+      ROCKET_ADDRESS: "127.0.0.1"
+      ROCKET_PORT: "8080"
+      ROCKET_PROFILE: "release"
+      WEB_VAULT_FOLDER: "/web-vault"
+      # The data folder is a tmpfs: THE VAULT IS LOST WHEN THE VM STOPS.
+      # Vaultwarden refuses to start on volatile storage without this.
+      DATA_FOLDER: "/data"
+      I_REALLY_WANT_VOLATILE_STORAGE: "true"
+      # Never read a config.json from the data folder (it would override
+      # this environment); this path is on an empty tmpfs.
+      CONFIG_FILE: "/run/vaultwarden/config.json"
+      SIGNUPS_ALLOWED: "false"
+      INVITATIONS_ALLOWED: "true"
+      DISABLE_ICON_DOWNLOAD: "true"
+      ICON_CACHE_TTL: "0"
+      ICON_SERVICE: "internal"
+      PUSH_ENABLED: "false"
+      SSO_ENABLED: "false"
+      PASSWORD_HINTS_ALLOWED: "false"
+      SHOW_PASSWORD_HINT: "false"
+      ORG_CREATION_USERS: "none"
+      IP_HEADER: "X-Forwarded-For"
+      LOG_LEVEL: "warn"
+      # ADMIN_TOKEN deliberately unset: admin panel disabled (DECISIONS D-008).
+
+  proxy:
+    image: docker.io/library/caddy@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0 # 2.11.9-alpine
+    user: "1001:1001"
+    ports:
+      - "443:443"
+    environment:
+      # Caddy's storage: ACME account, certificates and their private keys.
+      # /run is a tmpfs, so all of it exists in memory only.
+      HOME: "/run/caddy"
+      XDG_DATA_HOME: "/run/caddy/data"
+      XDG_CONFIG_HOME: "/run/caddy/config"
+    configs:
+      - source: caddyfile
+        target: /etc/attested-vw/Caddyfile
+
+configs:
+  caddyfile:
+    content: |
+      {
+        admin off
+        # No listener on port 80.
+        auto_https disable_redirects
+      }
+      __DOMAIN__ {
+        # One pinned issuer, so the sidecar knows where the leaf lives.
+        # TLS-ALPN-01 only: port 80 is not open.
+        tls {
+          issuer acme {
+            dir https://__ACME_HOST__/directory
+            disable_http_challenge
+          }
+        }
+        handle /.well-known/tee-attestation {
+          # Public evidence, no credentials: let a browser verifier page
+          # on another origin fetch it.
+          header Access-Control-Allow-Origin "*"
+          reverse_proxy 127.0.0.1:8081
+        }
+        handle {
+          reverse_proxy 127.0.0.1:8080
+        }
+      }

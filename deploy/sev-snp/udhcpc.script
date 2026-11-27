@@ -1,0 +1,26 @@
+#!/bin/sh
+# udhcpc event handler (ip=dhcp only). The DHCP server is the host: what it
+# sends decides the address, route and resolver, nothing else.
+export PATH=/bin
+case "$1" in
+  deconfig)
+    ifconfig "$interface" 0.0.0.0 up
+    ;;
+  bound|renew)
+    ifconfig "$interface" "$ip" netmask "${subnet:-255.255.255.0}" up
+    if [ -n "$router" ]; then
+      while route del default gw 0.0.0.0 dev "$interface" 2>/dev/null; do :; done
+      for r in $router; do
+        route add default gw "$r" dev "$interface" 2>/dev/null || {
+          route add -host "$r" dev "$interface"
+          route add default gw "$r" dev "$interface"
+        }
+        break
+      done
+    fi
+    : > /run/resolv.conf
+    for d in $dns; do echo "nameserver $d" >> /run/resolv.conf; done
+    [ -s /run/resolv.conf ] || printf 'nameserver 9.9.9.9\nnameserver 1.1.1.1\n' > /run/resolv.conf
+    ;;
+esac
+exit 0

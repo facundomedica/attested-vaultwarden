@@ -1,0 +1,140 @@
+#!/bin/sh
+# PID 1 of the Attested Vaultwarden SEV-SNP guest. The whole operating
+# system is this script, one static busybox and three service binaries, all
+# inside the initrd, which the launch MEASUREMENT covers.
+#
+# It takes exactly two inputs from outside the initrd, both from the kernel
+# command line, which is measured too:
+#   avw.compose_sha256=<64 hex>   must equal SHA-256(/etc/attested-vw/app-compose.json)
+#   ip=dhcp | ip=<ip>::<gw>:<netmask>:<host>:<dev>:off[:<dns0>[:<dns1>]]
+# plus avw.selftest=1 (print a self-test and power off; boot tests only).
+#
+# No shell on any console, no SSH, no getty, no cloud-init, no block device
+# driver. On any failure the guest powers off; it never drops to a prompt.
+#
+# Deliberately short and free of cleverness: it is part of what users trust.
+export PATH=/bin
+umask 022
+
+mount -t devtmpfs -o mode=0755,nosuid devtmpfs /dev
+exec </dev/null >/dev/console 2>&1
+mount -t proc -o nosuid,nodev,noexec proc /proc
+mount -t sysfs -o nosuid,nodev,noexec sysfs /sys
+mount -t tmpfs -o mode=0755,nosuid,nodev,size=64m tmpfs /run
+mount -t tmpfs -o mode=1777,nosuid,nodev,size=64m tmpfs /tmp
+# The vault. In memory only: gone when the VM stops.
+mount -t tmpfs -o mode=0700,nosuid,nodev,noexec,size=1024m,uid=1000,gid=1000 tmpfs /data
+
+say() { echo "avw-init: $*"; }
+die() {
+  say "FATAL: $*"
+  say "powering off"
+  sleep 2
+  poweroff -f
+  while :; do sleep 3600; done
+}
+
+C=/etc/attested-vw
+
+# --- 1. the document must be the one the measured command line names -------
+set -f
+want=""; n=0; ipcfg=""; selftest=0
+for w in $(cat /proc/cmdline); do
+  case "$w" in
+    avw.compose_sha256=*) want="${w#avw.compose_sha256=}"; n=$((n + 1));;
+    ip=*) ipcfg="${w#ip=}";;
+    avw.selftest=1) selftest=1;;
+  esac
+done
+[ "$n" = 1 ] || die "kernel command line must carry exactly one avw.compose_sha256= (found $n)"
+got="$(sha256sum "$C/app-compose.json")" || die "cannot hash $C/app-compose.json"
+got="${got%% *}"
+[ "${#got}" = 64 ] || die "sha256sum gave no digest"
+[ "$got" = "$want" ] || die "app-compose.json hashes to $got, the command line says $want"
+say "app-compose.json sha256 $got matches the kernel command line"
+
+# --- 2. kernel modules ------------------------------------------------------
+while read -r m; do
+  insmod "/lib/modules/$m" || say "warning: insmod $m failed"
+done < "$C/modules"
+mount -t configfs configfs /sys/kernel/config || say "warning: no configfs (no attestation reports)"
+
+# --- 3. network -------------------------------------------------------------
+ifconfig lo 127.0.0.1 up
+iface=""; i=0
+while [ -z "$iface" ] && [ "$i" -lt 100 ]; do
+  for d in $(ls /sys/class/net); do
+    [ "$d" = lo ] || { iface="$d"; break; }
+  done
+  [ -n "$iface" ] || { sleep 0.1; i=$((i + 1)); }
+done
+[ -n "$iface" ] || die "no network interface"
+case "$ipcfg" in
+  dhcp)
+    ifconfig "$iface" up
+    udhcpc -i "$iface" -n -t 15 -T 2 -s "$C/udhcpc.script" || die "no DHCP lease on $iface"
+    ;;
+  *:*)
+    # <client>:<server>:<gateway>:<netmask>:<hostname>:<device>:<autoconf>:<dns0>:<dns1>
+    # The interface is the first one found, whatever <device> says.
+    oldifs="$IFS"; IFS=:
+    set -- $ipcfg
+    IFS="$oldifs"
+    addr="$1"; gw="$3"; mask="$4"; dns0="$8"; dns1="$9"
+    [ -n "$addr" ] && [ -n "$gw" ] && [ -n "$mask" ] || die "ip= needs address, gateway and netmask"
+    ifconfig "$iface" "$addr" netmask "$mask" up || die "cannot configure $iface"
+    route add default gw "$gw" dev "$iface" 2>/dev/null || {
+      # gateway outside the subnet
+      route add -host "$gw" dev "$iface" && route add default gw "$gw" dev "$iface"
+    } || die "cannot add the default route"
+    : > /run/resolv.conf
+    for d in $dns0 $dns1; do echo "nameserver $d" >> /run/resolv.conf; done
+    [ -s /run/resolv.conf ] || printf 'nameserver 9.9.9.9\nnameserver 1.1.1.1\n' > /run/resolv.conf
+    ;;
+  *) die "kernel command line has no usable ip= (dhcp, or the static form)";;
+esac
+say "network up on $iface: $(ifconfig "$iface" | grep 'inet addr' | tr -s ' ')"
+# The clock comes from the host. A wrong one breaks certificate issuance
+# and validation; it is printed so that this is visible on the console.
+say "clock (host-supplied): $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+
+# --- 4. services ------------------------------------------------------------
+# Caddy binds 443 without being root.
+sysctl -q -w net.ipv4.ip_unprivileged_port_start=443 || die "cannot lower the unprivileged port range"
+mkdir -p /run/vaultwarden /run/caddy
+chown 1000:1000 /run/vaultwarden
+chown 1001:1001 /run/caddy
+chmod 0700 /run/vaultwarden /run/caddy
+
+# Service output: the serial console is read by the host, so it is used only
+# when the document says public_logs = true.
+if [ "$(cat "$C/logs")" = console ]; then out=/dev/console; else out=/dev/null; fi
+
+# Each service gets exactly the environment in its .env file (generated from
+# app-compose.json at build time; KEY=VALUE words, never evaluated).
+su -s /bin/sh vaultwarden -c "exec env -i $(cat "$C/vaultwarden.env") /vaultwarden" >"$out" 2>&1 &
+su -s /bin/sh caddy -c "exec env -i $(cat "$C/proxy.env") /usr/local/bin/caddy run --config $C/Caddyfile --adapter caddyfile" >"$out" 2>&1 &
+# The sidecar stays root: configfs-tsm and Caddy's 0600 certificate files
+# are root-only. Its start-up messages always reach the console: they say
+# whether an SNP report is available and contain no user data.
+env -i $(cat "$C/attest.env") /usr/local/bin/attest-sidecar >/dev/console 2>&1 &
+say "started vaultwarden, caddy and the attestation sidecar"
+
+# --- 5. boot self-test (avw.selftest=1 only) --------------------------------
+if [ "$selftest" = 1 ]; then
+  sleep 20
+  nonce=0000000000000000000000000000000000000000000000000000000000000000
+  echo "avw-selftest: vaultwarden /alive: $(wget -q -T 10 -O - http://127.0.0.1:8080/alive 2>&1 | head -c 200)"
+  echo "avw-selftest: sidecar without nonce: $(wget -S -T 10 -O - http://127.0.0.1:8081/.well-known/tee-attestation 2>&1 | grep -E 'HTTP/|error' | tr '\n' ' ')"
+  echo "avw-selftest: sidecar with nonce: $(wget -S -T 10 -O - "http://127.0.0.1:8081/.well-known/tee-attestation?nonce=$nonce" 2>&1 | grep -E 'HTTP/|error' | tr '\n' ' ')"
+  echo "avw-selftest: listening sockets:"
+  netstat -ltnu | grep -E '^(tcp|udp)' | while read -r l; do echo "avw-selftest:   $l"; done
+  echo "avw-selftest: tsm provider: $(mkdir /sys/kernel/config/tsm/report/selftest 2>&1 && cat /sys/kernel/config/tsm/report/selftest/provider 2>&1)"
+  echo "avw-selftest: done"
+  poweroff -f
+fi
+
+# --- 6. all three or nothing ------------------------------------------------
+status=0
+wait -n || status=$?
+die "a service exited (status $status)"

@@ -1,0 +1,14 @@
+# Kernel modules /init loads, in this order; the build adds their
+# dependencies (deploy/sev-snp/Dockerfile). Anything built into the Debian
+# kernel is skipped. There is deliberately no block or file-system driver:
+# the guest cannot read the disk the host attaches.
+#
+# Network: virtio-net is what Servury's own initramfs loads; the Intel
+# models are there in case a host is configured with an emulated NIC.
+virtio_net
+e1000
+e1000e
+# Attestation: /sys/kernel/config/tsm/report, provider sev_guest.
+configfs
+tsm
+sev-guest

@@ -9,3 +9,4 @@ demo/tamper/.generated/
 registry.env
 deploy/gcp-cs/.generated/
 .claude/worktrees/
+deploy/sev-snp/.generated/
