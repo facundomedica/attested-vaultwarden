@@ -63,6 +63,9 @@ accepted_tcb_status = ["UpToDate", "SWHardeningNeeded"]
 allow_smt = true
 allow_dynamic_platform = true
 allow_cached_keys = true
+# Placeholders: both pins are mandatory in a TDX policy.
+app_id = "0000000000000000000000000000000000000000"
+key_provider = '{"name":"none","id":""}'
 
 [[images]]
 service = "attest"

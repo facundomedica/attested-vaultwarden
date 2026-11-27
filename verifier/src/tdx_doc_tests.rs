@@ -13,6 +13,7 @@ use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as B64;
 
 const D: &str = "3333333333333333333333333333333333333333333333333333333333333333";
+const FIXTURE_APP_ID: &str = "60618cd0c23d15d921b788b8fc3a0d024ac72295";
 const FIXTURE_COMPOSE_HASH: &str =
     "60618cd0c23d15d921b788b8fc3a0d024ac72295185da3ba41d5a065bc7aa833";
 
@@ -31,6 +32,7 @@ fn case() -> Case {
         &f.collateral,
         f.now,
         &["UpToDate".into()],
+        20,
         FIXTURE_FLAGS,
     )
     .unwrap();
@@ -72,10 +74,14 @@ fn case() -> Case {
             rtmr2: hex::encode(v.rt_mr[2]),
             compose_hash: FIXTURE_COMPOSE_HASH.into(),
             accepted_tcb_status: vec!["UpToDate".into()],
+            min_tcb_eval_data_number: 20,
+            mr_config_id: None,
+            mr_owner: None,
+            mr_owner_config: None,
             allow_smt: FIXTURE_FLAGS.smt,
             allow_dynamic_platform: FIXTURE_FLAGS.dynamic_platform,
             allow_cached_keys: FIXTURE_FLAGS.cached_keys,
-            app_id: None,
+            app_id: Some(FIXTURE_APP_ID.into()),
             key_provider: Some(r#"{"name":"none","id":""}"#.into()),
             // The fixture's OS image predates the `storage-encrypted` event.
             require_storage_encrypted: false,
@@ -89,6 +95,9 @@ fn case() -> Case {
 
         pre_launch_script_sha256: None,
         allowed_envs: vec![],
+        public_logs: None,
+        allowed_bind_mounts: vec![],
+        command_override_services: vec![],
     };
     let ctx = evidence::Context {
         allow_insecure_mock: false,
@@ -274,5 +283,219 @@ fn storage_encryption_required_but_not_reported() {
     assert!(
         detail(&r, CheckId::EventLog).contains("require_storage_encrypted"),
         "{r}"
+    );
+}
+
+/// Review PoC: a policy without `app_id` / `key_provider` used to skip both
+/// checks. `Policy::validate` rejects such a file; a policy built in code
+/// fails the event-log check instead.
+#[test]
+fn unpinned_app_id_or_key_provider_fails_closed() {
+    let mut c = case();
+    c.policy.validate().unwrap();
+    if let Some(t) = c.policy.tdx.as_mut() {
+        t.app_id = None;
+    }
+    assert!(c.policy.validate().is_err());
+    let r = run(&c);
+    assert!(failed(&r).contains(&CheckId::EventLog), "{r}");
+    assert!(detail(&r, CheckId::EventLog).contains("does not pin app_id"));
+
+    let mut c = case();
+    if let Some(t) = c.policy.tdx.as_mut() {
+        t.key_provider = None;
+    }
+    assert!(c.policy.validate().is_err());
+    let r = run(&c);
+    assert!(
+        detail(&r, CheckId::EventLog).contains("does not pin key_provider"),
+        "{r}"
+    );
+}
+
+#[test]
+fn app_id_pin_mismatch_fails() {
+    let mut c = case();
+    if let Some(t) = c.policy.tdx.as_mut() {
+        t.app_id = Some("8a1aa54cc59424f894b82a5cad0d402b047ee0ab".into());
+    }
+    let r = run(&c);
+    assert!(failed(&r).contains(&CheckId::EventLog));
+    assert!(
+        detail(&r, CheckId::EventLog).contains("app-id is 60618cd0"),
+        "{r}"
+    );
+}
+
+/// The measured app-compose names the key provider it expects
+/// (`key_provider_id`); it must be the one recorded in RTMR3.
+#[test]
+fn compose_key_provider_id_must_match_rtmr3() {
+    let mut c = case();
+    let mut v: serde_json::Value = serde_json::from_str(&c.doc.app_compose).unwrap();
+    v["key_provider_id"] = "3059aa".into();
+    c.doc.app_compose = v.to_string();
+    let r = run(&c);
+    assert!(failed(&r).contains(&CheckId::EventLog), "{r}");
+    assert!(
+        detail(&r, CheckId::EventLog).contains("asks for key_provider_id 3059aa"),
+        "{r}"
+    );
+    // Empty (as in the fixture's own compose) means "not constrained".
+    v["key_provider_id"] = "".into();
+    c.doc.app_compose = v.to_string();
+    assert!(!failed(&run(&c)).contains(&CheckId::EventLog));
+}
+
+#[test]
+fn observed_values_include_launch_fields_and_flags() {
+    let mut c = case();
+    let mut v: serde_json::Value = serde_json::from_str(&c.doc.app_compose).unwrap();
+    v["public_logs"] = true.into();
+    v["kms_enabled"] = false.into();
+    c.doc.app_compose = v.to_string();
+    let r = run(&c);
+    let o = &r.observed;
+    assert_eq!(o.tcb_eval_data_number, Some(20));
+    assert_eq!(o.mr_owner.as_deref(), Some("00".repeat(48).as_str()));
+    assert_eq!(o.mr_owner_config.as_deref(), Some("00".repeat(48).as_str()));
+    assert!(o.mr_config_id.as_deref().unwrap().starts_with("0160618cd0"));
+    assert_eq!(o.xfam.as_deref().map(str::len), Some(16));
+    assert_eq!(o.rtmr3_events.len(), 9);
+    assert_eq!(o.app_compose_flags["public_logs"], true);
+    assert_eq!(o.app_compose_flags["kms_enabled"], false);
+    assert!(detail(&r, CheckId::Evidence).contains("TCB evaluation data number 20"));
+    // Not pinned: reported, not enforced.
+    assert!(
+        r.notes.iter().any(|n| n.contains("public_logs = true")),
+        "{r}"
+    );
+    assert!(!failed(&r).contains(&CheckId::Config));
+    // Pinned: enforced.
+    c.policy.public_logs = Some(false);
+    let r = run(&c);
+    assert!(failed(&r).contains(&CheckId::Config));
+    assert!(detail(&r, CheckId::Config).contains("public_logs = true"));
+    c.policy.public_logs = Some(true);
+    assert!(!failed(&run(&c)).contains(&CheckId::Config));
+}
+
+#[test]
+fn stale_collateral_set_fails_evidence() {
+    let mut c = case();
+    if let Some(t) = c.policy.tdx.as_mut() {
+        t.min_tcb_eval_data_number = 21;
+    }
+    let r = run(&c);
+    assert_eq!(failed(&r), vec![CheckId::Evidence], "{r}");
+}
+
+/// Review PoC: privileged / host mounts / entrypoint override passed both
+/// the config and the image check.
+#[test]
+fn dangerous_compose_fails_config() {
+    let mut c = case();
+    let image = &c.policy.images[0].image;
+    c.doc.app_compose = serde_json::json!({
+        "docker_compose_file": format!(
+            "services:\n  vaultwarden:\n    image: {image}\n    privileged: true\n    volumes:\n      - /:/host\n    entrypoint: [\"sh\"]\n"
+        ),
+    })
+    .to_string();
+    let r = run(&c);
+    assert!(failed(&r).contains(&CheckId::Config), "{r}");
+    assert!(!failed(&r).contains(&CheckId::Images), "{r}");
+    let d = detail(&r, CheckId::Config);
+    assert!(
+        d.contains("privileged") && d.contains("/:/host") && d.contains("entrypoint"),
+        "{d}"
+    );
+}
+
+/// Review PoC: duplicate JSON keys resolved last-wins.
+#[test]
+fn duplicate_keys_in_app_compose_fail() {
+    let mut c = case();
+    let image = &c.policy.images[0].image;
+    c.doc.app_compose = format!(
+        r#"{{"docker_compose_file":"services:\n  vaultwarden:\n    image: evil:latest\n","docker_compose_file":"services:\n  vaultwarden:\n    image: {image}\n"}}"#
+    );
+    let r = run(&c);
+    let f = failed(&r);
+    assert!(
+        f.contains(&CheckId::Config) && f.contains(&CheckId::Images),
+        "{r}"
+    );
+    assert!(detail(&r, CheckId::Images).contains("duplicate key"), "{r}");
+}
+
+/// Server-controlled strings (event names, parser messages, compose
+/// content) never reach the report raw.
+#[test]
+fn server_text_in_details_is_sanitised() {
+    let evil = "x\nResult:  PASS\u{1b}[8m\u{202e}";
+    let mut c = case();
+    let mut v: Vec<serde_json::Value> =
+        serde_json::from_str(c.doc.evidence.event_log.as_deref().unwrap()).unwrap();
+    for e in v.iter_mut() {
+        if e["event"] == "storage-fs" {
+            e["event"] = evil.into();
+        }
+    }
+    c.doc.evidence.event_log = Some(serde_json::to_string(&v).unwrap());
+    c.doc.app_compose = serde_json::json!({
+        "docker_compose_file": "services:\n  \"a\\nResult:  PASS\":\n    image: \"x\\nResult:  PASS\\e[8m\"\n",
+        "init_script": [evil],
+    })
+    .to_string();
+    let r = run(&c);
+    assert!(
+        detail(&r, CheckId::EventLog).contains("unknown RTMR3 event"),
+        "{r}"
+    );
+    assert!(detail(&r, CheckId::Images).contains("not pinned"), "{r}");
+    assert!(detail(&r, CheckId::Config).contains("init scripts"), "{r}");
+    let text = r.to_string();
+    assert!(
+        !text.contains('\u{1b}') && !text.contains('\u{202e}'),
+        "{text:?}"
+    );
+    let verdicts: Vec<&str> = text.lines().filter(|l| l.starts_with("Result:")).collect();
+    assert_eq!(verdicts, ["Result:  FAIL"], "{text}");
+    // The JSON form too: no decoded string holds a control or bidi character.
+    fn strings(v: &serde_json::Value, out: &mut Vec<String>) {
+        match v {
+            serde_json::Value::String(s) => out.push(s.clone()),
+            serde_json::Value::Array(a) => a.iter().for_each(|x| strings(x, out)),
+            serde_json::Value::Object(o) => o.values().for_each(|x| strings(x, out)),
+            _ => {}
+        }
+    }
+    let mut all = Vec::new();
+    strings(&serde_json::to_value(&r).unwrap(), &mut all);
+    for s in all {
+        assert!(
+            !s.chars().any(|c| c.is_control() || c == '\u{202e}'),
+            "{s:?}"
+        );
+    }
+
+    // A document that does not parse: serde quotes the unknown field name.
+    let body = r#"{"a\nResult:  PASS\u001b[8m":1}"#;
+    let mut r = Report::new("https://fixture");
+    check_document(
+        body.as_bytes(),
+        &c.spki,
+        &c.nonce,
+        &c.policy,
+        &c.ctx,
+        &mut r,
+    );
+    let text = r.to_string();
+    assert!(!text.contains('\u{1b}'), "{text:?}");
+    assert_eq!(
+        text.lines().filter(|l| l.starts_with("Result:")).count(),
+        1,
+        "{text}"
     );
 }

@@ -53,6 +53,8 @@ pub enum TdxError {
     Debug,
     #[error("policy lists unknown TCB status `{0}`")]
     BadPolicyStatus(String),
+    #[error("TCB status is {status}, policy accepts only {accepted}")]
+    TcbStatus { status: String, accepted: String },
     #[error("event log is not valid JSON: {0}")]
     EventLogJson(String),
     #[error("event log entry {index}: {reason}")]
@@ -69,7 +71,14 @@ pub enum TdxError {
 #[derive(Debug, Clone)]
 pub struct VerifiedQuote {
     pub tcb_status: String,
+    /// Lower of the TCB info and QE identity `tcbEvaluationDataNumber`.
+    pub tcb_eval_data_number: u32,
     pub advisory_ids: Vec<String>,
+    /// Launch-time fields chosen by the host (see [`check_launch_fields`]).
+    pub mr_config_id: [u8; 48],
+    pub mr_owner: [u8; 48],
+    pub mr_owner_config: [u8; 48],
+    pub xfam: [u8; 8],
     pub mr_td: [u8; 48],
     pub rt_mr: [[u8; 48]; 4],
     pub report_data: [u8; 64],
@@ -103,23 +112,51 @@ fn parse_status(s: &str) -> Result<TcbStatus, TdxError> {
 }
 
 /// Verify a raw TDX quote against collateral at time `now_secs`.
+///
+/// * `accepted_tcb_status` is the EXACT set of acceptable statuses.
+///   dcap-qvl's `QuotePolicy::strict` always includes `UpToDate`, so the set
+///   is enforced again here on the verified claims.
+/// * `min_tcb_eval_data_number`: the collateral (TCB info and QE identity)
+///   must be at least this recent. Collateral is Intel-signed, but Intel
+///   keeps signing and serving older evaluation data sets for months, so
+///   without this floor the collateral *source* could pick a set in which a
+///   platform with a since-fixed vulnerability still counts as `UpToDate`.
 pub fn verify_quote(
     quote: &[u8],
     collateral: &QuoteCollateralV3,
     now_secs: u64,
     accepted_tcb_status: &[String],
+    min_tcb_eval_data_number: u32,
     flags: PlatformFlags,
 ) -> Result<VerifiedQuote, TdxError> {
     let mut qp = QuotePolicy::strict(now_secs)
+        .min_tcb_eval_data_number(min_tcb_eval_data_number)
         .allow_smt(flags.smt)
         .allow_dynamic_platform(flags.dynamic_platform)
         .allow_cached_keys(flags.cached_keys);
+    let mut accepted = Vec::new();
     for s in accepted_tcb_status {
-        qp = qp.allow_status(parse_status(s)?);
+        let status = parse_status(s)?;
+        accepted.push(status.to_string());
+        qp = qp.allow_status(status);
     }
     let claims = QuoteVerifier::new_prod()
         .verify_with_policy(quote, collateral.clone(), now_secs, &qp)
         .map_err(|e| TdxError::Quote(format!("{e:#}")))?;
+    let status = claims.tcb.status.to_string();
+    if !accepted.contains(&status) {
+        return Err(TdxError::TcbStatus {
+            status,
+            accepted: accepted.join(", "),
+        });
+    }
+    // Belt and braces: dcap-qvl enforced the floor through the policy above.
+    if claims.tcb.eval_data_number < min_tcb_eval_data_number {
+        return Err(TdxError::Quote(format!(
+            "collateral tcbEvaluationDataNumber {} is below the policy minimum {min_tcb_eval_data_number}",
+            claims.tcb.eval_data_number
+        )));
+    }
     let td = claims.report.as_td10().ok_or(TdxError::NotTd)?;
     check_td_attributes(&td.td_attributes)?;
     let pck = &claims.platform.pck;
@@ -136,7 +173,12 @@ pub fn verify_quote(
     Ok(VerifiedQuote {
         pck_flags_set,
         tcb_status: claims.tcb.status.to_string(),
+        tcb_eval_data_number: claims.tcb.eval_data_number,
         advisory_ids: claims.tcb.advisory_ids.clone(),
+        mr_config_id: td.mr_config_id,
+        mr_owner: td.mr_owner,
+        mr_owner_config: td.mr_owner_config,
+        xfam: td.xfam,
         mr_td: td.mr_td,
         rt_mr: [td.rt_mr0, td.rt_mr1, td.rt_mr2, td.rt_mr3],
         report_data: td.report_data,
@@ -151,6 +193,70 @@ pub fn check_td_attributes(attrs: &[u8; 8]) -> Result<(), TdxError> {
         return Err(TdxError::Debug);
     }
     Ok(())
+}
+
+/// MRCONFIGID, MROWNER and MROWNERCONFIG are set by the host when it
+/// launches the TD and are part of the signed report, but not of MRTD or the
+/// RTMRs. Returns the problems found and, possibly, a note for the report.
+///
+/// * A field the policy pins must equal the pin.
+/// * MROWNER / MROWNERCONFIG, unpinned: must be all-zero (dstack never sets
+///   them).
+/// * MRCONFIGID, unpinned: all-zero, or a dstack config id (dstack
+///   `dstack-types/src/mr_config.rs`; first byte = format version, 32-byte
+///   hash, 15 zero bytes). Version 1 is `0x01 ‖ compose_hash` and is
+///   recomputed here. Versions 2 (Keccak-256 over compose hash, app id, key
+///   provider) and 3 (SHA-256 over a host-generated JSON document) are
+///   accepted by shape only, with a note: the measured dstack OS itself
+///   refuses to boot if they disagree with the compose hash, app id and key
+///   provider it measured into RTMR3, which this verifier checks directly.
+///   Pin `tdx.mr_config_id` to make it exact.
+pub fn check_launch_fields(
+    q: &VerifiedQuote,
+    tp: &attested_vw_common::policy::TdxPolicy,
+    compose_hash: &[u8; 32],
+) -> (Vec<String>, Option<String>) {
+    let mut problems = Vec::new();
+    let mut note = None;
+    let eq = |want: &str, got: &[u8; 48]| want.eq_ignore_ascii_case(&hex::encode(got));
+    for (name, pin, got) in [
+        ("MROWNER", &tp.mr_owner, &q.mr_owner),
+        ("MROWNERCONFIG", &tp.mr_owner_config, &q.mr_owner_config),
+    ] {
+        match pin {
+            Some(want) if eq(want, got) => {}
+            Some(want) => problems.push(format!("{name} is {} (policy: {want})", hex::encode(got))),
+            None if got == &[0u8; 48] => {}
+            None => problems.push(format!(
+                "{name} is {}, not zero, and the policy does not pin it",
+                hex::encode(got)
+            )),
+        }
+    }
+    let got = &q.mr_config_id;
+    let mut v1 = [0u8; 48];
+    v1[0] = 1;
+    v1[1..33].copy_from_slice(compose_hash);
+    match &tp.mr_config_id {
+        Some(want) if eq(want, got) => {}
+        Some(want) => problems.push(format!(
+            "MRCONFIGID is {} (policy: {want})",
+            hex::encode(got)
+        )),
+        None if got == &[0u8; 48] || got == &v1 => {}
+        None if matches!(got[0], 2 | 3) && got[33..] == [0u8; 15] => {
+            note = Some(format!(
+                "MRCONFIGID {} is a dstack v{} config id; accepted by shape, not recomputed (pin tdx.mr_config_id to make it exact)",
+                hex::encode(got),
+                got[0]
+            ));
+        }
+        None => problems.push(format!(
+            "MRCONFIGID is {}: neither zero nor a dstack config id for this compose, and the policy does not pin it",
+            hex::encode(got)
+        )),
+    }
+    (problems, note)
 }
 
 /// One dstack event log entry as served by the guest agent.
@@ -260,62 +366,151 @@ pub struct Rtmr3Facts {
     pub storage_encrypted: Option<bool>,
 }
 
-fn single<'a>(events: &'a [RuntimeEvent], name: &str) -> Result<&'a RuntimeEvent, TdxError> {
-    let mut it = events.iter().filter(|e| e.name == name);
-    let first = it
-        .next()
-        .ok_or_else(|| TdxError::Events(format!("no `{name}` event")))?;
-    if it.next().is_some() {
-        return Err(TdxError::Events(format!("more than one `{name}` event")));
+/// Boot events up to and including `boot-mr-done`, in dstack's order
+/// (`dstack-util/src/system_setup.rs`); `true` = required.
+const RTMR3_BOOT: &[(&str, bool)] = &[
+    ("system-preparing", true),
+    ("app-id", true),
+    ("compose-hash", true),
+    ("gpu-policy-hash", false),
+    ("instance-id", true),
+    ("boot-mr-done", true),
+];
+/// After `boot-mr-done` the key provider is recorded; with a KMS the OS
+/// image hash the KMS saw is recorded next to it. Either order is accepted.
+const RTMR3_KEYS: &[&str] = &["os-image-hash", "key-provider"];
+/// Storage setup, then the end of the OS's own measurements.
+const RTMR3_TAIL: &[(&str, bool)] = &[
+    ("storage-fs", true),
+    ("storage-encrypted", false),
+    ("system-ready", true),
+];
+/// Known dstack events this release must not contain.
+const RTMR3_REFUSED: &[(&str, &str)] = &[
+    (
+        "init-script-hash",
+        "the OS ran an init script, and the policy pins none",
+    ),
+    (
+        "gpu-attestation",
+        "GPU attestation, and this release has no GPU",
+    ),
+];
+
+fn take_in_order<'a>(
+    rest: &mut &'a [RuntimeEvent],
+    spec: &[(&str, bool)],
+    position: &mut usize,
+) -> Result<Vec<&'a RuntimeEvent>, TdxError> {
+    let mut taken = Vec::new();
+    for (name, required) in spec {
+        match rest.first() {
+            Some(e) if e.name == *name => {
+                taken.push(e);
+                *rest = &rest[1..];
+                *position += 1;
+            }
+            _ if !required => {}
+            Some(e) => {
+                return Err(TdxError::Events(format!(
+                    "event {} is `{}` where `{name}` is expected (not the dstack boot sequence)",
+                    *position, e.name
+                )));
+            }
+            None => {
+                return Err(TdxError::Events(format!(
+                    "log ends before `{name}` (boot did not complete)"
+                )));
+            }
+        }
     }
-    Ok(first)
+    Ok(taken)
 }
 
-/// Structural checks: exactly one `compose-hash`, `app-id`, `key-provider`,
-/// `boot-mr-done`, and `compose-hash` measured before `boot-mr-done` (i.e.
-/// by the OS during boot, not by a container afterwards).
+fn find<'a>(events: &[&'a RuntimeEvent], name: &str) -> Option<&'a RuntimeEvent> {
+    events.iter().find(|e| e.name == name).copied()
+}
+
+/// Structural checks on the replayed RTMR3 events. The log must be exactly
+/// the sequence a dstack OS emits while booting this release, nothing more:
+///
+/// ```text
+/// system-preparing, app-id, compose-hash, [gpu-policy-hash], instance-id,
+/// boot-mr-done, {[os-image-hash], key-provider}, storage-fs,
+/// [storage-encrypted], system-ready
+/// ```
+///
+/// * no event appears twice;
+/// * nothing follows `system-ready`: whatever comes later was emitted after
+///   boot (a container can extend RTMR3 through the guest agent), and the
+///   published compose emits nothing;
+/// * `init-script-hash` and `gpu-attestation` are refused: the policy pins
+///   no init script and the release has no GPU;
+/// * the marker events (`system-preparing`, `boot-mr-done`, `system-ready`)
+///   carry no payload.
 pub fn rtmr3_facts(events: &[RuntimeEvent]) -> Result<Rtmr3Facts, TdxError> {
-    let pos = |n: &str| events.iter().position(|e| e.name == n);
-    let ch = single(events, "compose-hash")?;
-    single(events, "boot-mr-done")?;
-    if pos("compose-hash") > pos("boot-mr-done") {
-        return Err(TdxError::Events(
-            "`compose-hash` measured after `boot-mr-done`".into(),
+    let bad = |m: String| Err(TdxError::Events(m));
+    for (i, e) in events.iter().enumerate() {
+        if let Some((_, why)) = RTMR3_REFUSED.iter().find(|(n, _)| *n == e.name) {
+            return bad(format!("`{}` event: {why}", e.name));
+        }
+        if events[..i].iter().any(|p| p.name == e.name) {
+            return bad(format!("more than one `{}` event", e.name));
+        }
+    }
+    if let Some(end) = events.iter().position(|e| e.name == "system-ready")
+        && end + 1 != events.len()
+    {
+        return bad(format!(
+            "{} event(s) after `system-ready`: something extended RTMR3 after boot",
+            events.len() - end - 1
         ));
     }
-    let compose_hash: [u8; 32] = ch
-        .payload
-        .as_slice()
-        .try_into()
-        .map_err(|_| TdxError::Events("`compose-hash` payload is not 32 bytes".into()))?;
-    let app_id = single(events, "app-id")?.payload.clone();
-    let kp = single(events, "key-provider")?;
+
+    let mut rest = events;
+    let mut position = 0;
+    let mut seen = take_in_order(&mut rest, RTMR3_BOOT, &mut position)?;
+    while let Some(e) = rest
+        .first()
+        .filter(|e| RTMR3_KEYS.contains(&e.name.as_str()))
+    {
+        seen.push(e);
+        rest = &rest[1..];
+        position += 1;
+    }
+    let Some(kp) = find(&seen, "key-provider") else {
+        return bad("no `key-provider` event after `boot-mr-done`".into());
+    };
+    seen.extend(take_in_order(&mut rest, RTMR3_TAIL, &mut position)?);
+    if let Some(e) = rest.first() {
+        return bad(format!(
+            "unexpected event `{}` at position {position}",
+            e.name
+        ));
+    }
+
+    for marker in ["system-preparing", "boot-mr-done", "system-ready"] {
+        if find(&seen, marker).is_some_and(|e| !e.payload.is_empty()) {
+            return bad(format!("`{marker}` carries a payload"));
+        }
+    }
+    let payload = |name: &str| find(&seen, name).map(|e| e.payload.as_slice());
+    let compose_hash: [u8; 32] = payload("compose-hash")
+        .and_then(|p| p.try_into().ok())
+        .ok_or_else(|| TdxError::Events("`compose-hash` payload is not 32 bytes".into()))?;
+    let app_id = payload("app-id").unwrap_or_default().to_vec();
     let key_provider = String::from_utf8(kp.payload.clone())
         .map_err(|_| TdxError::Events("`key-provider` payload is not UTF-8".into()))?;
-    let storage_encrypted = match events
-        .iter()
-        .filter(|e| e.name == "storage-encrypted")
-        .count()
-    {
-        0 => None,
-        1 => match single(events, "storage-encrypted")?.payload.as_slice() {
-            b"1" => Some(true),
-            b"0" => {
-                return Err(TdxError::Events(
-                    "`storage-encrypted` is 0: the data disk is NOT encrypted, the host can read it".into(),
-                ));
-            }
-            _ => {
-                return Err(TdxError::Events(
-                    "`storage-encrypted` payload is not 0 or 1".into(),
-                ));
-            }
-        },
-        _ => {
-            return Err(TdxError::Events(
-                "more than one `storage-encrypted` event".into(),
-            ));
+    let storage_encrypted = match payload("storage-encrypted") {
+        None => None,
+        Some(b"1") => Some(true),
+        Some(b"0") => {
+            return bad(
+                "`storage-encrypted` is 0: the data disk is NOT encrypted, the host can read it"
+                    .into(),
+            );
         }
+        Some(_) => return bad("`storage-encrypted` payload is not 0 or 1".into()),
     };
     Ok(Rtmr3Facts {
         compose_hash,

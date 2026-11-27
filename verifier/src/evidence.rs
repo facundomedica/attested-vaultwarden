@@ -116,6 +116,7 @@ pub fn verify(
                 coll,
                 ctx.now_secs,
                 &tp.accepted_tcb_status,
+                tp.min_tcb_eval_data_number,
                 tdx::PlatformFlags::from_policy(tp),
             )?;
             let adv = if v.advisory_ids.is_empty() {
@@ -126,8 +127,8 @@ pub fn verify(
             Ok(Verified {
                 report_data: ReportData(v.report_data),
                 summary: format!(
-                    "Intel DCAP quote signature and collateral valid, TCB {}{adv}, TD debug off",
-                    v.tcb_status
+                    "Intel DCAP quote signature and collateral valid, TCB {}{adv} (TCB evaluation data number {}, policy minimum {}), TD debug off",
+                    v.tcb_status, v.tcb_eval_data_number, tp.min_tcb_eval_data_number
                 ),
                 measured: Measured::Tdx(Box::new(v)),
             })

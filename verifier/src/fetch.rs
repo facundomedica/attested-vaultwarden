@@ -1,7 +1,15 @@
 //! Network fetches of vendor endorsements (CLI only; never used by tests).
 //!
 //! Both are signed by the hardware vendor and verified offline afterwards,
-//! so where they come from affects availability, not trust.
+//! so the source cannot forge them. It is NOT trusted for availability
+//! only, though: the source chooses WHICH validly signed collateral we see.
+//! Intel keeps older TCB evaluation data sets valid for months, so a
+//! malicious or stale PCCS can serve one in which a platform with a
+//! since-fixed vulnerability is still `UpToDate` (TCB rollback), or an old
+//! CRL that predates a revocation. The verifier bounds this with the
+//! policy's `tdx.min_tcb_eval_data_number` and the collateral's own
+//! validity window; within those bounds the source is trusted for
+//! freshness. Prefer Intel PCS (the default) over third-party caches.
 
 use sev::firmware::guest::AttestationReport;
 use sev::parser::ByteParser;
@@ -10,12 +18,20 @@ pub const INTEL_PCS_URL: &str = "https://api.trustedservices.intel.com";
 pub const AMD_KDS_URL: &str = "https://kdsintf.amd.com";
 
 /// Intel DCAP collateral for a TDX quote (PCK CRL, TCB info, QE identity).
+///
+/// `early` asks for Intel's `update=early` TCB evaluation data set (the
+/// newest published one) instead of `update=standard` (the one Intel
+/// currently enforces). Early is stricter: a platform can be `OutOfDate`
+/// there weeks before it is under standard.
 pub async fn tdx_collateral(
     pccs_url: &str,
     quote: &[u8],
+    early: bool,
 ) -> Result<dcap_qvl::QuoteCollateralV3, String> {
+    use dcap_qvl::collateral::TcbEvaluationDataSet as Set;
     let client = dcap_qvl::collateral::CollateralClient::with_default_http(pccs_url.to_owned())
-        .map_err(|e| format!("{e:#}"))?;
+        .map_err(|e| format!("{e:#}"))?
+        .with_evaluation_data_set(if early { Set::Early } else { Set::Standard });
     client
         .fetch(quote)
         .await
