@@ -180,14 +180,54 @@ fn default_true() -> bool {
     true
 }
 
+/// How the app-compose document is bound to an SEV-SNP report.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SnpComposeBinding {
+    /// `HOST_DATA` (32 bytes, fixed by the host at launch, signed in every
+    /// report) = SHA-256(app-compose). Meaningful only because the guest
+    /// image pinned by `measurement` refuses to run a config whose hash is
+    /// not its own `HOST_DATA` (docs/SNP.md).
+    HostData,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SevSnpPolicy {
     /// Expected launch measurement (48 bytes, hex), as computed by
-    /// `sev-snp-measure` for the published OVMF + UKI.
+    /// `sev-snp-measure` for the published OVMF + kernel + initrd + cmdline.
     pub measurement: String,
-    /// Minimum acceptable reported TCB components.
+    /// Minimum acceptable TCB components (applied to the reported,
+    /// committed and launch TCB).
     pub min_tcb: SnpMinTcb,
+    /// How the compose document is bound. Required: there is no default.
+    pub compose_binding: SnpComposeBinding,
+    /// Expected `HOST_DATA` (32 bytes, hex) = SHA-256 of the app-compose
+    /// document this release pins.
+    pub host_data: String,
+    /// VMPLs a report may be requested from. Default `[0]`.
+    #[serde(default = "default_vmpl")]
+    pub allowed_vmpl: Vec<u32>,
+    /// Accept a guest policy that lets the host use SMT (and a platform that
+    /// has it on). Default false.
+    #[serde(default)]
+    pub allow_smt: bool,
+    /// Require `PLATFORM_INFO.ALIAS_CHECK_COMPLETE` (memory-aliasing check,
+    /// the BadRAM mitigation, AMD-SB-3015). Default true.
+    #[serde(default = "default_true")]
+    pub require_alias_check: bool,
+    /// If set, `ID_KEY_DIGEST` (48 bytes, hex: SHA-384 of the ID public key
+    /// that signed the launch ID block) must equal this.
+    #[serde(default)]
+    pub id_key_digest: Option<String>,
+    /// If set, `AUTHOR_KEY_DIGEST` must equal this and the report must say an
+    /// author key was used.
+    #[serde(default)]
+    pub author_key_digest: Option<String>,
+}
+
+fn default_vmpl() -> Vec<u32> {
+    vec![0]
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -200,6 +240,10 @@ pub struct MockPolicy {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SnpMinTcb {
+    /// Minimum FMC SVN (Turin and later). A report that carries an FMC SVN
+    /// fails if this is unset.
+    #[serde(default)]
+    pub fmc: Option<u8>,
     pub bootloader: u8,
     pub tee: u8,
     pub snp: u8,
@@ -354,6 +398,19 @@ impl Policy {
                     .as_ref()
                     .ok_or_else(|| invalid("sev_snp", "required when platform = \"sev-snp\""))?;
                 check_hex("sev_snp.measurement", &s.measurement, 48)?;
+                check_hex("sev_snp.host_data", &s.host_data, 32)?;
+                if s.host_data.bytes().all(|b| b == b'0') {
+                    return Err(invalid("sev_snp.host_data", "must not be all zero"));
+                }
+                if s.allowed_vmpl.is_empty() || s.allowed_vmpl.iter().any(|v| *v > 3) {
+                    return Err(invalid("sev_snp.allowed_vmpl", "must list VMPLs 0-3"));
+                }
+                if let Some(d) = &s.id_key_digest {
+                    check_hex("sev_snp.id_key_digest", d, 48)?;
+                }
+                if let Some(d) = &s.author_key_digest {
+                    check_hex("sev_snp.author_key_digest", d, 48)?;
+                }
             }
             Platform::Mock => {
                 let m = self
@@ -514,6 +571,41 @@ mod tests {
         let off = s.replace("[tdx]\n", "[tdx]\nrequire_storage_encrypted = false\n");
         let p = Policy::from_toml(&off).expect("valid");
         assert!(p.tdx.as_ref().is_some_and(|t| !t.require_storage_encrypted));
+    }
+
+    #[test]
+    fn sev_snp_policy_is_fail_closed() {
+        let z48 = "ab".repeat(48);
+        let base = format!(
+            "schema = 1\nrelease = \"r\"\ndate = \"d\"\nplatform = \"sev-snp\"\n\
+             [sev_snp]\nmeasurement = \"{z48}\"\nCOMPOSE\
+             [sev_snp.min_tcb]\nbootloader = 4\ntee = 0\nsnp = 24\nmicrocode = 219\n\
+             [[images]]\nservice = \"vw\"\nimage = \"a@sha256:{D}\"\n"
+        );
+        let h = "11".repeat(32);
+        let full = format!("compose_binding = \"host-data\"\nhost_data = \"{h}\"\n");
+        let p = Policy::from_toml(&base.replace("COMPOSE", &full)).expect("valid");
+        let s = p.sev_snp.expect("section");
+        assert_eq!(s.compose_binding, SnpComposeBinding::HostData);
+        assert_eq!(s.allowed_vmpl, vec![0]);
+        assert!(!s.allow_smt && s.require_alias_check);
+        assert!(s.min_tcb.fmc.is_none() && s.id_key_digest.is_none());
+        // No binding, no host_data, zero host_data, unknown mode, bad VMPL: all rejected.
+        for bad in [
+            String::new(),
+            "compose_binding = \"host-data\"\n".to_owned(),
+            format!("host_data = \"{h}\"\n"),
+            format!("compose_binding = \"host-data\"\nhost_data = \"{D}\"\n"),
+            format!("compose_binding = \"none\"\nhost_data = \"{h}\"\n"),
+            format!("{full}allowed_vmpl = []\n"),
+            format!("{full}allowed_vmpl = [4]\n"),
+            format!("{full}id_key_digest = \"00\"\n"),
+        ] {
+            assert!(
+                Policy::from_toml(&base.replace("COMPOSE", &bad)).is_err(),
+                "{bad}"
+            );
+        }
     }
 
     #[test]
