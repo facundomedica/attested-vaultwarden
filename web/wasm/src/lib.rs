@@ -92,7 +92,7 @@ pub fn verify(input: &Input) -> Output {
     Output {
         passed: report.passed(),
         text: report.to_string(),
-        labels: report.checks.iter().map(|c| c.id.label()).collect(),
+        labels: report.checks.iter().map(|c| report.label(c.id)).collect(),
         report,
         ct_certs,
     }

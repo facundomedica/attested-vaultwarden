@@ -161,6 +161,15 @@ impl Report {
         }
     }
 
+    /// Label of a check as printed in this report. Only `Fetch` depends on
+    /// the mode: a page has no "same connection" to speak of.
+    pub fn label(&self, id: CheckId) -> &'static str {
+        match id {
+            CheckId::Fetch if self.browser_mode => "Fetch attestation",
+            _ => id.label(),
+        }
+    }
+
     /// PASS only if at least one check ran, all checks passed, and the
     /// evidence was not the insecure mock. In browser mode the Certificate
     /// Transparency check must also have run (and passed).
@@ -200,7 +209,7 @@ impl fmt::Display for Report {
         }
         for c in &self.checks {
             let mark = if c.passed { "✓" } else { "✗" };
-            writeln!(f, "  {mark} {}: {}", c.id.label(), c.detail)?;
+            writeln!(f, "  {mark} {}: {}", self.label(c.id), c.detail)?;
             for s in &c.sub {
                 writeln!(f, "      {s}")?;
             }

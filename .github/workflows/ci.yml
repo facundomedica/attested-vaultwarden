@@ -29,6 +29,25 @@ jobs:
       # Unit tests must not touch the network; fixtures live in */testdata.
       - run: cargo test --workspace --locked
 
+  web:
+    # Browser verifier: the pure core must build without the CLI's network
+    # stack, the wasm crate must be clean, and the built page must pass its
+    # headless test (recorded evidence, mock network; no real network).
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          toolchain: stable
+          targets: wasm32-unknown-unknown
+          components: clippy
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - run: cargo clippy -p attested-vw-verify --no-default-features --lib --locked -- -D warnings
+      - run: cargo clippy -p attested-vw-web --target wasm32-unknown-unknown --locked -- -D warnings
+      - run: cargo install wasm-bindgen-cli --version 0.2.130 --locked
+      - run: web/build.sh
+      - run: node web/test/run.mjs
+
   e2e-local-mock:
     # Local end-to-end test with the INSECURE mock platform: Vaultwarden +
     # Caddy (local CA) + sidecar, verifier against it, relay and tamper cases.

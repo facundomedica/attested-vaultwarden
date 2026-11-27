@@ -203,3 +203,30 @@ async fn annotate_images(report: &mut Report) {
         .collect();
     report.set_sub(CheckId::Images, registry::sub_lines(&images, &notes));
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Network (Docker Hub); run by hand:
+    /// `cargo test -p attested-vw-verify registry_lookup_live -- --ignored --nocapture`
+    #[tokio::test]
+    #[ignore = "needs network"]
+    async fn registry_lookup_live() {
+        let policy =
+            Policy::from_toml(include_str!("../../policy/2026.11.2-phala-dev.toml")).unwrap();
+        let mut r = Report::new("x");
+        r.observed.images = policy
+            .images
+            .iter()
+            .map(|i| (i.service.clone(), i.image.clone()))
+            .collect();
+        r.pass(CheckId::Images, "3 services");
+        let t = std::time::Instant::now();
+        annotate_images(&mut r).await;
+        assert!(t.elapsed() < REGISTRY_LOOKUP_BUDGET + std::time::Duration::from_secs(1));
+        println!("{r}");
+        assert!(r.passed());
+        assert!(r.checks[0].sub.len() >= 3);
+    }
+}
