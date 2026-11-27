@@ -13,8 +13,8 @@ the hardware vendor's attestation root and the TEE itself are not broken**:
 |---|-------|----------------|
 | C1 | The responder is a genuine Intel TDX guest (AMD SEV-SNP: report verification only, no deployment path yet), debug off, TCB acceptable to the policy. | Quote/report signature chain to the Intel/AMD root, collateral validity, TCB status and PCK platform flags (SMT, dynamic platform, cached keys) as the policy allows, debug attribute. SNP: VCEK bound to the report's TCB and chip; **no revocation (CRL) check yet**. |
 | C2 | The guest booted the published firmware and OS image. | MRTD + RTMR0-2 (TDX) or launch measurement (SNP) equal the policy. |
-| C3 | The guest runs the published compose document, and every container image in it is pinned by digest and allowlisted. | RTMR3 replay reproduces the quoted RTMR3 and its `compose-hash` event equals the policy; images parsed from that measured document. |
-| C4 | The TLS private key behind the certificate the verifier just validated is held by that guest. | `report_data = SHA-512(tag ‖ nonce ‖ SHA-256(SPKI))` is signed by the TEE; the SPKI is taken from the verifier's own TLS handshake. |
+| C3 | The guest runs the published compose document, and every container image in it is pinned by digest and allowlisted. | RTMR3 replay reproduces the quoted RTMR3 and its `compose-hash` event equals the policy; images parsed from that measured document. The verifier also refuses a list of known-dangerous compose settings (privileged, host namespaces and paths, command overrides, ...); that list is a safety net, not a proof that a compose is safe: what is trusted is the reviewed document the compose hash pins. |
+| C4 | The TLS private key behind the certificate the verifier just validated is held by that guest (and, see the precondition below, by nobody who had access to its persistent disk). | `report_data = SHA-512(tag ‖ nonce ‖ SHA-256(SPKI))` is signed by the TEE; the SPKI is taken from the verifier's own TLS handshake. |
 | C5 | The evidence is fresh. | Verifier-chosen 32-byte random nonce in `report_data`. |
 
 What PASS does **not** claim:
@@ -33,6 +33,52 @@ app CVM by default, so the deployment uses gateway TLS *passthrough* to Caddy
 inside the CVM ([ARCHITECTURE.md §2](ARCHITECTURE.md)). A deployment behind
 the default terminating gateway URL would fail C4 by construction (the
 gateway's certificate, not ours, is what the verifier sees).
+
+**C3 and C4 have a precondition the verifier cannot check: persistent
+state.** The data disk is encrypted with a key that the key provider (KMS)
+derives from the *app id*, not from the compose hash. Whoever controls the
+app (the operator, A4; on the Phala-operated KMS, also whoever decides which
+compose hashes get keys, R10) can boot the same app id once with a
+different compose, read or write the disk from inside that CVM, and then
+boot the published compose again. The published compose then verifies
+(every measurement is the published one) while running on state that
+something else prepared:
+
+* the TLS private key and certificate (Caddy's storage) can be copied out:
+  a relay holding the key passes C4 (see A5);
+* the ACME account key can be copied out: certificates for the name can
+  then be issued outside the CVM, even with a CAA `accounturi` pin;
+* `/data/config.json` can be planted: Vaultwarden lets it override the
+  measured environment (confirmed on 1.37.5: a planted file changed
+  `DOMAIN` and logged "environment variables are being overridden");
+* `/data/rsa_key.pem` (JWT signing key) can be copied: sessions for any
+  user can be forged against the attested server;
+* the Docker image store is on the same disk (UNCONFIRMED for dstack
+  0.6.5; Docker does not re-verify layer contents against the digest when
+  it starts a container), so even "pinned by digest" would rest on it;
+* the database itself, of course (stored hashes, encrypted vaults,
+  metadata).
+
+So C3 and C4 hold **only if no compose other than a published policy's has
+ever run under this app id with this key provider**. Nothing in the
+evidence shows that history. What exists today:
+
+* *Mitigation, template for the next release (2026.11.4):* TLS certificates
+  and keys live on a tmpfs and are re-issued at every boot, so no TLS key
+  is ever on the persistent disk; `CONFIG_FILE` points at a tmpfs, so a
+  planted `config.json` is not read; the sidecar mounts only the
+  certificates tmpfs. This closes the TLS-key and config channels. It does
+  **not** close the ACME account key, `rsa_key.pem`, the database or the
+  image store, and a TLS key persisted by an *earlier* release stays valid
+  until its certificate expires or is revoked.
+* *Real fix (not implemented):* a key provider that releases the disk key
+  only to compose hashes from a public allowlist, so that a non-published
+  compose never gets the key in the first place: dstack's on-chain KMS
+  with an app contract that lists allowed compose hashes, with the
+  contract address and its upgrade authority pinned in the policy (the
+  RTMR3 `key-provider` event already identifies the KMS). Under research.
+* *Until then:* the operator's statement that the app id was created for,
+  and only ever ran, published composes is a trust assumption (§6).
 
 ## 2. Assets
 
@@ -55,7 +101,7 @@ gateway's certificate, not ours, is what the verifier sees).
 | **A2 Holder of disk, snapshots or backups** | Reads and replays any persistent storage. | Data disk LUKS-encrypted with a key the KMS releases only to the measured app; the verifier fails if the RTMR3 `storage-encrypted` event is `0`, and reports "encryption not reported" if the OS image predates the event (dstack < 0.6.5); policies require the event by default (`require_storage_encrypted`). Backups taken *inside* the guest must be encrypted to a key the operator lacks; host-level snapshots are ciphertext. | Rollback (R6). Any backup tooling added later is in the TCB. |
 | **A3 Network attacker** | Intercepts, modifies, replays traffic between users and the service and between components. | TLS terminated inside the guest; WebPKI validation in the verifier. | Mis-issued certificates (R2). |
 | **A4 Service operator (us)** | Chooses what to deploy, holds the deployment credentials, injects secrets, controls DNS and the ACME account, can redeploy at will. | Measurements + compose hash + image allowlist against a public, signed release policy; TLS key generated in-guest; no operator access path in the published config (no SSH, no admin panel, see §5). | DNS and certificate control (R1, R2); unmeasured inputs (§5); publishing a malicious release openly (R3). |
-| **A5 Relay attacker** | Owns a genuine TEE running the published software and forwards its attestation while serving users from a different, non-attested server. | The attested `report_data` commits to the SPKI of the certificate the verifier itself received in the same TLS connection; a relay serving a different key fails C4. | A relay that also holds the in-guest TLS key is impossible unless the key leaks (R4). |
+| **A5 Relay attacker** | Owns a genuine TEE running the published software and forwards its attestation while serving users from a different, non-attested server. | The attested `report_data` commits to the SPKI of the certificate the verifier itself received in the same TLS connection; a relay serving a different key fails C4. | A relay that also holds the in-guest TLS key passes. The key leaves the guest through a TEE break (R4) **or through persistent state**: up to 2026.11.2 the key is stored on the data disk, which any compose booted under the same app id can read (§1, precondition of C4). From the 2026.11.4 template on the key is memory-only; a key written by an earlier release remains usable until that certificate expires. The operator (A4) is the party able to do this, so against A4 the relay defence rests on the app id's history. |
 
 ### Out of scope / residual risks
 
@@ -98,7 +144,7 @@ gateway's certificate, not ours, is what the verifier sees).
   them. Anyone with physical access to the host (for example a datacentre
   insider) is therefore outside what this project defends against. See
   [RELATED_WORK.md](RELATED_WORK.md) for links.
-* **R5 Denial of service.** The operator or host can always stop the service.
+* **R5 Denial of service.** The operator or host can always stop the service. Anyone on the network can also make verification fail for a while by exhausting the attestation endpoint's rate limit (per client address and global; the verifier retries once). Verification then fails closed: no PASS, never a false one.
 * **R6 Rollback of disk state.** A host can restore an older encrypted disk
   snapshot. The guest cannot tell, because TDX/SNP have no hardware
   monotonic counter exposed for this. Effects: deleted items or revoked
@@ -170,12 +216,18 @@ them:
 | Registry read token (private sidecar image, Phala deployment) | Delivered as encrypted env `GHCR_READ_TOKEN`, unmeasured; read by a measured pre-launch script that runs `docker login`. | Policy pins the script hash and the env name; images are pinned by digest, so a substituted token can only break the pull. Compose interpolation is forbidden, so the env cannot reach configuration. |
 | Vaultwarden admin panel (`/admin`) | If `ADMIN_TOKEN` comes from encrypted env, the host can replace it with a hash of its own token (row above). Holder of `ADMIN_TOKEN` can view user metadata (emails, item counts, orgs, last activity), delete/deauthorise users, invite users and **change configuration at runtime** (persisted to `config.json` in `/data`, overriding env). That is operator access to assets and to unmeasured behaviour. | `ADMIN_TOKEN` unset in attested releases (admin panel disabled); users are onboarded via org invitations. If a panel is ever needed, its Argon2 hash goes literally into the measured compose and every capability it grants is documented as operator power. DECISIONS.md D-008. |
 | Logs | Platform log collection (e.g. container logs visible to the operator) can leak IPs, emails and icon domains. | `LOG_LEVEL=warn`. On dstack, `public_logs` (measured) decides whether container logs are served by the guest agent's external API; with it off, not even the owner can read them. Development deployments turn logs on deliberately, and their policies must say so; a release meant for real use turns them off. |
-| Persistent `/data` | Files there (e.g. `config.json`) can change behaviour and survive redeploys. | Same as admin panel; verifier cannot see `/data`. |
+| Persistent `/data` and the other volumes | Files there change behaviour or hold keys, survive redeploys, and are readable and writable by any compose booted under the same app id (§1). `config.json` overrides the measured environment; `rsa_key.pem` signs sessions; Caddy's storage held the TLS key. The verifier cannot see any of it. | 2026.11.4 template: `CONFIG_FILE` on a tmpfs, TLS certificates and keys on a tmpfs. Not covered: `rsa_key.pem` (moving it off the disk would sign every user out at each restart, and their invitation and verification links would die; a copied key lets an attacker forge sessions and fetch *encrypted* vaults and metadata, not plaintext), the ACME account key (kept so a CAA `accounturi` pin stays stable), the database, the image store. |
+| Collateral source (`--pccs-url`) | Intel signs the collateral, but the source picks which signed version the verifier sees. An older TCB evaluation data set can show a platform as `UpToDate` that Intel has since declared `OutOfDate`. | The policy pins `min_tcb_eval_data_number` (default 20, the value on 2026-11-26); the report prints the number used. Default source is Intel PCS. A cache can still withhold a *newer* set than the minimum, and can serve a CRL as old as its validity allows. |
 | Upgrades | A new release is a new policy. | Every release is a public, signed policy file; users choose which releases they accept. |
 
 ## 6. Assumptions
 
 * Intel's (or AMD's) attestation root of trust and collateral service are honest.
+* The collateral the verifier is given is recent: at least the policy's
+  `min_tcb_eval_data_number`, and from a source that does not hold back
+  newer data (Intel PCS by default).
+* The app id has only ever run composes of published policies with this key
+  provider (§1). The verifier cannot check this.
 * The TEE hardware and firmware correctly implement isolation and
   measurement, modulo R4.
 * The dstack OS image, guest agent and KMS behave as published (R10).
