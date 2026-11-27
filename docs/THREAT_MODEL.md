@@ -108,6 +108,17 @@ evidence shows that history. What exists today:
   with an app contract that lists allowed compose hashes, with the
   contract address and its upgrade authority pinned in the policy (the
   RTMR3 `key-provider` event already identifies the KMS). Under research.
+* *Options compared:* [KEEPER.md](KEEPER.md) sets the ways of closing
+  this side by side: the on-chain KMS above; an SGX local key provider
+  (self-hosted); an ephemeral data disk (every restart is an empty vault);
+  a cross-platform key broker; and a design that keeps the vault in memory
+  only and hands it between VMs after mutual attestation, with standby
+  replication and an optional recovery path through Shamir shares. That
+  last design is described in full there and was **deliberately not
+  built** (D-054): it needs a second always-on VM, allows no
+  data-preserving upgrade, loses the vault if all replicas restart at once
+  unless recovery is built too, and still leaves the image store on the
+  disk.
 * *Until then:* the operator's statement that the app id was created for,
   and only ever ran, published composes is a trust assumption (§6).
 

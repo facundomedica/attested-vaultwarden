@@ -169,7 +169,9 @@ Step-by-step for non-experts: [docs/VERIFY.md](docs/VERIFY.md).
   key and certificate live in memory only (a fresh key at every boot,
   checked live) and Vaultwarden ignores a planted `config.json`, but the
   ACME account key, the vault database and the token-signing key are still
-  on that disk ([THREAT_MODEL §1](docs/THREAT_MODEL.md)).
+  on that disk ([THREAT_MODEL §1](docs/THREAT_MODEL.md)). The ways to close
+  this, including a memory-only design that was examined and not built, are
+  compared in [docs/KEEPER.md](docs/KEEPER.md).
 * **The browser verifier binds through CT, not through your connection.**
   It shows that every publicly logged, currently valid certificate for the
   name has an attested key. That is detection with a log-delay window, it

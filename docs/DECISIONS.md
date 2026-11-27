@@ -1045,3 +1045,49 @@ The attestation route now sends the CORS header there too, and
 that test in `facundo.dev` (`vault.gcp` A record to a released address, two
 CAA records at `gcp`) were to be deleted; see the open items of the
 2026-11-27 session if they are still present.
+
+### D-054 RAM-only data key with attested handoff ("keeper"): documented, not built (2026-11-27)
+
+* **Question.** The persistent-state precondition (THREAT_MODEL §1): on
+  dstack every key derives from the app id, not from the compose hash, so
+  a compose nobody published can read and modify the vault on the data
+  disk, and the published compose then verifies. 2026.11.4 took the TLS
+  keys and `config.json` off the disk; the vault data stayed.
+* **Option examined.** Keep no key for vault data at all: `/data` on a
+  tmpfs, and a "keeper" that hands the vault to another VM only after both
+  have verified each other with the verifier library; a standby that
+  follows and takes over; optionally encrypted snapshots on untrusted
+  storage with the data key escrowed as Shamir shares to recovery keys
+  pinned in the measured compose. Full design, protocol, comparison with
+  the other fixes and residual risks: [KEEPER.md](KEEPER.md).
+* **Decision: not built.** A throwaway prototype (protocol, service,
+  snapshot via SQLite's backup API, recovery formats; about 4,000 lines of
+  Rust with tests) was written to test the design and passed its unit and
+  localhost tests on the INSECURE mock platform; a container-level test was
+  started and not completed. It was then removed from the tree on the
+  owner's decision. Nothing of it ran on a TEE. No code, policy field,
+  template or verifier output from it remains.
+* **Reasons.** (1) Complexity out of proportion for this prototype: the
+  keeper would be the largest and most security-critical component, a new
+  protocol plus a second always-on VM, a two-pass deployment and one
+  policy per node and role. (2) It turns a confidentiality assumption into
+  an availability hazard: all replicas restarting at once destroys the
+  vault unless the recovery machinery is built as well. (3) The set of
+  releases that may hold the vault has to be fixed in the measured compose
+  (two releases that list each other cannot name each other by compose
+  hash, and any "trust what key X signs" rule hands the vault to the holder
+  of X), so there is no data-preserving upgrade. (4) It does not remove
+  the precondition: the Docker image store and the ACME account key stay
+  on the persistent disk.
+* **What stands instead.** The precondition remains a documented
+  assumption; TLS keys in memory, `CONFIG_FILE` on a tmpfs and the measured
+  pre-launch cleanup (D-049) narrow it. For a Phala deployment that needs
+  the vault-data channel closed, the on-chain KMS with a compose-hash
+  allowlist is the option to evaluate first (trust moves to the contract's
+  governance; details in KEEPER.md §2 are as reported, not checked against
+  the contracts).
+* **Worth keeping from the exercise** (none implemented): the verifier
+  could print the storage mode it reads from the measured compose
+  (persistent disk, ephemeral) so that users see which promises apply; and
+  the image store on the persistent disk deserves its own check, since it
+  undermines every variant.
