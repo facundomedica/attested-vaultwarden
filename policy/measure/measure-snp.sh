@@ -8,6 +8,10 @@
 #       --append "console=ttyS0 ..." --vcpus 2 --vcpu-type EPYC-Milan-v2 \
 #       --compose app-compose.json [--guest-features 0x1] [--policy policy/<release>.toml]
 #
+# This is for the `host-data` binding (docs/SNP.md §3). For the
+# `measured-cmdline` image built by deploy/sev-snp/build.sh use
+# deploy/sev-snp/measure.sh instead (docs/SNP_SERVURY.md).
+#
 # UNTESTED: written from the sev-snp-measure 0.0.13 README; this project has
 # no SNP host, so this script has never produced a value that was compared
 # with a real report. See docs/SNP.md.

@@ -80,7 +80,9 @@ pub enum CheckId {
     Measurements,
     /// RTMR3 event log replays to the quoted RTMR3 (TDX).
     EventLog,
-    /// SEV-SNP: `HOST_DATA` is set and the pinned image enforces it.
+    /// SEV-SNP: `HOST_DATA` is set and the pinned image enforces it; or
+    /// (`measured-cmdline`) the compose hash is on the measured command line
+    /// and `HOST_DATA` is what the policy expects.
     HostData,
     /// Hash of the measured compose document equals the policy.
     ComposeHash,

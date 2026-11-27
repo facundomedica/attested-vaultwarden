@@ -117,8 +117,10 @@ customer.
 
 ### 2.2 The guest image
 
-`deploy/sev-snp/`. One static busybox, a 130-line `/init`, three service
-binaries, their configuration, and six kernel modules with dependencies.
+`deploy/sev-snp/`. One static busybox, a `/init` of about 140 lines, three
+service binaries with the shared libraries they link, their configuration,
+and eight kernel modules (virtio-net and two Intel NIC drivers, configfs,
+tsm, sev-guest, and what those depend on).
 
 * **No container runtime.** Vaultwarden, Caddy and the sidecar are three
   processes started by `/init`, as in the Confidential Space image
@@ -142,16 +144,19 @@ binaries, their configuration, and six kernel modules with dependencies.
   it is part of the command line and therefore of the measurement, and no
   policy pins an image built with it.
 * **State**: all in memory. `/data` (the vault) and `/run` (Caddy's ACME
-  account, certificates and TLS private keys) are tmpfs. **Every stop of
-  the VM loses the vault** and makes Caddy request a new certificate on the
-  next start (Let's Encrypt: 5 identical certificates per week). The
-  durability work ("keeper") is separate; this image keeps the same layout
-  it expects (Vaultwarden data in RAM, TLS key in RAM).
+  account, certificates and TLS private keys) are tmpfs. **Every stop,
+  restart or crash of the VM destroys the vault data and the TLS key.**
+  Every start therefore begins with an empty Vaultwarden and requests a new
+  certificate; Let's Encrypt issues at most 5 certificates per week for the
+  same set of names, so the sixth start within a week leaves the service
+  without a certificate until the limit refills. This is acceptable for a
+  7-day demonstration and for nothing else. Persistence is not built
+  (§2.3).
 * **Network**: `ip=dhcp`, or the kernel's static form as Servury's panel
   suggests it. The first non-loopback interface is used, whatever name the
   line gives. Vaultwarden and the sidecar listen on 127.0.0.1; Caddy
-  listens on 443 and obtains the certificate with TLS-ALPN-01. Nothing
-  listens on 80.
+  listens on 443 (TCP, and UDP for HTTP/3) and obtains the certificate
+  with TLS-ALPN-01. Nothing listens on 80 or on any other port.
 * **Logs**: service output goes to the serial console only if the document
   has `public_logs = true` (build with `--public-logs`); the host reads
   that console. `/init`'s own lines and the sidecar's start-up lines are
@@ -166,6 +171,28 @@ binaries, their configuration, and six kernel modules with dependencies.
   therefore reports the upstream digests the build copied from; that the
   bytes in the initrd really are those is established by rebuilding the
   image, not by the check.
+
+### 2.3 Persistence: not built
+
+A persistent disk is possible on this platform but was left out. The
+shape it would take: an encrypted volume on the disk Servury attaches (or
+one written with their "bring your own disk"), opened in `/init` with a
+key from `SNP_GET_DERIVED_KEY` with the measurement and guest policy
+mixed in. A different image or command line then derives a different key
+and cannot open the volume. Why it is not in this image:
+
+* it needs a block driver, dm-crypt and a key-derivation helper in the
+  measured image (the sidecar's configfs-tsm path does not expose derived
+  keys; `/dev/sev-guest` ioctls need code this workspace forbids as
+  `unsafe` or a new dependency), all of it security-critical and none of
+  it testable without hardware;
+* a key bound to the measurement means **every new release loses the
+  data**, unless a migration path between measurements is designed, which
+  is the hard part and is not designed;
+* the disk is host-controlled: the host can roll it back to an older
+  state or delete it, and the guest cannot tell (THREAT_MODEL R6);
+* a TLS key on disk would re-open the question of who else could have
+  derived that key, which the in-memory design avoids.
 
 What a reviewer of a measurement has to read: `deploy/sev-snp/Dockerfile`,
 `init`, `udhcpc.script`, `gen-config.py`, `mkcpio.py`, `modules.txt`,
@@ -216,7 +243,24 @@ The build downloads from Docker Hub, `snapshot.debian.org` and crates.io.
 
 ### 3.2 Reproducibility result
 
-@@REPRO@@
+Run on 2026-11-27 on an ARM Mac (Docker 29.4.0, BuildKit v0.29.0,
+linux/amd64 emulation), commit `0b975a6`, `snp.facundo.dev`,
+`ip=dhcp`, `--public-logs --check`. The second build ran with `--no-cache`
+(sidecar recompiled, packages downloaded again). Both gave:
+
+| File | SHA-256 |
+|------|---------|
+| `attested-vw.efi` | `2637c19d1a9b6c80b79031c937e9ce2213e3523391dff3a6c1698a7a6fa51db5` |
+| `vmlinuz` | `96758c40859c94163e5cf81399a107d679e984e251cb4e13aba4e7d92f5d14f2` |
+| `initrd.img` | `f32c41e025b69948855a164d637baa6561ee3fa255e9884e54a44885091b1586` |
+| `app-compose.json` | `3ab541ee11ff2f131f496db1211a1d58c3eb8ba5c02083b1abd5f7147f129e58` |
+
+`vmlinuz` has the same hash as the `vmlinuz` of Servury's release
+2026.11.3, as it should: both are the file inside the same Debian package.
+
+Not shown by this: reproducibility on another machine, on a native amd64
+host, or at a later date (it then depends on `snapshot.debian.org` and the
+registries still serving the pinned inputs).
 
 ### 3.3 Boot test without SNP
 
@@ -227,7 +271,34 @@ deploy/sev-snp/boot-test.sh deploy/sev-snp/.generated/selftest uki
 deploy/sev-snp/boot-test.sh deploy/sev-snp/.generated/selftest tamper
 ```
 
-@@BOOT@@
+Run on 2026-11-27 with QEMU 11.1.1 (TCG emulation, `-cpu max`, 2 vCPUs,
+3 GB, virtio-net with user-mode networking), on the self-test image built
+from the same commit. Its `initrd.img` and `vmlinuz` are byte-identical to
+the ones of §3.2 (`f32c41e0…`, `96758c40…`); only the command line, and
+with it the UKI, differs by the word `avw.selftest=1`. All three PASS:
+
+* `split` and `uki`: `/init` accepts the document, DHCP gives an address,
+  the three services start, Vaultwarden answers `/alive`, the sidecar
+  answers 400 without a nonce and 503 with one, and the only sockets
+  listening on a non-loopback address are TCP and UDP 443. The UKI was
+  booted through QEMU's bundled edk2, not Servury's firmware.
+* `tamper` (one digit of `avw.compose_sha256` changed): `/init` prints
+  `FATAL: app-compose.json hashes to …, the command line says …` and powers
+  off before configuring the network or starting anything.
+* The image without the self-test (the one measured in §4) was booted the
+  same way and stayed up for a minute with all three services running.
+
+The sidecar's console lines in these boots are the expected ones for a
+machine without SNP:
+
+```
+attest-sidecar: WARNING: NO SNP REPORT AVAILABLE (create tsm report entry: No such device or address (os error 6)). This is not an SEV-SNP guest with the sev-guest driver; every attestation request will fail with 503.
+attest-sidecar: platform=sev-snp listening on 127.0.0.1:8081
+```
+
+What these boots do not show: anything involving SEV-SNP (`insmod
+sev-guest.ko` fails with "No such device" here), Servury's firmware,
+their network, or certificate issuance.
 
 ## 4. Expected measurement
 
@@ -245,7 +316,15 @@ hash) in a container with Servury's parameters, for two upload shapes:
 * `split`: kernel = `vmlinuz`, initrd = `initrd.img`, command line =
   `cmdline.txt`.
 
-@@MEASURE@@
+Result for the build of §3.2 (example values: `ip=dhcp`, which is not what
+a Servury VM will use):
+
+| Shape | vCPUs | Expected `MEASUREMENT` |
+|-------|-------|------------------------|
+| uki | 1 | `334ad3b66ceb4a41f46a5584146ae0b4a193b78c12afe7b56a04d8f5fae382602d57cbc97118f9e4c3001e806e5403f9` |
+| uki | 2 | `b2082539373d7f411476d19a1aacfac03f6d624e11ab6294aeb12e6dfbea7e876609daf79e3deee53373e71e83e7ff69` |
+| split | 1 | `50276a5b2de9c5f4da1db4d9e177e23cda46d02bad2c90a5c688259055ade0b15104aeb9c99ba8e82c2cf069930b371b` |
+| split | 2 | `e32208f5bf9c487924496fda390033686e06b464016ba71024008b2cf03a97b6d643386317923388a4f7b45c50b46c90` |
 
 `policy/2026.11.0-sev-snp-servury-dev.example.toml` holds those example
 values. It is an **example**: marked unverified, built with `ip=dhcp`, and
@@ -272,7 +351,7 @@ first start with our image nothing of Servury's runs in the guest. The
 operating system chosen does not matter either.
 
 Nano (1 vCPU, 2 GB) may be enough; it was not sized. The initrd unpacks to
-about @@ROOTFS_MB@@ MB of RAM, and the vault tmpfs is capped at 1 GB.
+about 290 MB of RAM, and the vault tmpfs is capped at 1 GB.
 
 From the panel or `GET ?action=boot-image&id=<server>` note:
 `network.ipv4`, `gateway4`, `suggested_cmdline`, and the vCPU count.
@@ -316,9 +395,11 @@ netmask is dotted (`255.255.255.0` for a `/24`). Two resolvers may be
 appended (`...:off:<dns0>:<dns1>`); without them the guest uses 9.9.9.9 and
 1.1.1.1. While testing, add `--acme-host
 acme-staging-v02.api.letsencrypt.org`: every start requests a new
-certificate, and the production limit is 5 per week for the same name
-(the verifier then needs to be told to accept the staging root, or run
-with the TLS check expected to fail; use production for the recorded run).
+certificate, and the production limit is 5 per week for the same name.
+A staging certificate does not chain to a WebPKI root, so the verifier's
+TLS check fails against it; staging is for checking that the image boots
+and obtains a certificate, and the recorded run needs a production build
+(a different measurement, since the ACME host is in the image).
 
 `--public-logs` is for development: Vaultwarden's and Caddy's output then
 reaches the serial console, which Servury can read.
@@ -330,7 +411,7 @@ and the header. Leave `min_tcb` at zero for the first run only (§6.2).
 ### 5.4 Upload (acts on the Servury account)
 
 1. Put `attested-vw.efi` on any http(s) server (it contains no secret; it
-   is about @@UKI_MB@@ MB). Note its SHA-256 from the build output.
+   is about 72 MB). Note its SHA-256 from the build output.
 2. Panel: Manage, Boot image: the URL and the SHA-256, **command line left
    empty**. Or the API:
    `POST ?action=boot-image&id=<server>` with

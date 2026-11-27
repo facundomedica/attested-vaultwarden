@@ -1,0 +1,68 @@
+# EXAMPLE, UNVERIFIED. Not a release. Nothing here has been compared with a
+# report from SEV-SNP hardware; no Servury VM existed when it was written
+# (2026-11-27). It shows what a policy for the image of deploy/sev-snp/
+# looks like and lets the tests and `measure.sh --policy` run against real
+# build output. Before using it, replace `measurement` and `compose_hash`
+# with the values of the image you actually upload (the IP configuration is
+# on the measured command line, so the values below, built with ip=dhcp,
+# cannot be the ones of a Servury VM), and set `min_tcb` from the first
+# real report. Runbook: docs/SNP_SERVURY.md. Decision record: D-055.
+#
+# Built from commit 0b975a64d6af42a6b23cf5220acbe994546f14bb:
+#   deploy/sev-snp/build.sh snp.facundo.dev --public-logs --check
+#   (ip=dhcp, acme-v02.api.letsencrypt.org; two builds, identical files)
+#     attested-vw.efi   2637c19d1a9b6c80b79031c937e9ce2213e3523391dff3a6c1698a7a6fa51db5
+#     vmlinuz           96758c40859c94163e5cf81399a107d679e984e251cb4e13aba4e7d92f5d14f2
+#     initrd.img        f32c41e025b69948855a164d637baa6561ee3fa255e9884e54a44885091b1586
+#     app-compose.json  3ab541ee11ff2f131f496db1211a1d58c3eb8ba5c02083b1abd5f7147f129e58
+#     cmdline           console=ttyS0,115200 panic=-1 ip=dhcp avw.compose_sha256=3ab541ee11ff2f131f496db1211a1d58c3eb8ba5c02083b1abd5f7147f129e58
+#   deploy/sev-snp/measure.sh deploy/sev-snp/.generated/snp.facundo.dev --policy <this file>
+#   sev-snp-measure 0.0.13, OVMF.amdsev.fd 8731846cdbcbb6aa5c624238b839544b1553f4c5af874450f043321b3ef8958b
+#   (Servury release 2026.11.3), vcpu-type EPYC-v4, guest-features 0x1:
+#     uki   vcpus=1  334ad3b66ceb4a41f46a5584146ae0b4a193b78c12afe7b56a04d8f5fae382602d57cbc97118f9e4c3001e806e5403f9
+#     uki   vcpus=2  b2082539373d7f411476d19a1aacfac03f6d624e11ab6294aeb12e6dfbea7e876609daf79e3deee53373e71e83e7ff69   <- pinned below (Blackbox Core)
+#     split vcpus=1  50276a5b2de9c5f4da1db4d9e177e23cda46d02bad2c90a5c688259055ade0b15104aeb9c99ba8e82c2cf069930b371b
+#     split vcpus=2  e32208f5bf9c487924496fda390033686e06b464016ba71024008b2cf03a97b6d643386317923388a4f7b45c50b46c90
+# The document: policy/2026.11.0-sev-snp-servury-dev.example.app-compose.json
+#
+# Development settings, not for real users: public_logs = true (service
+# output on the host-readable serial console), SMT accepted, TCB minimums
+# zero, the vault in memory only.
+schema = 1
+release = "2026.11.0-sev-snp-servury-dev.example"
+date = "2026-11-27"
+platform = "sev-snp"
+public_logs = true
+
+[sev_snp]
+measurement = "b2082539373d7f411476d19a1aacfac03f6d624e11ab6294aeb12e6dfbea7e876609daf79e3deee53373e71e83e7ff69"
+# The compose hash is on the measured kernel command line (docs/SNP.md §3.5).
+compose_binding = "measured-cmdline"
+compose_hash = "3ab541ee11ff2f131f496db1211a1d58c3eb8ba5c02083b1abd5f7147f129e58"
+# No host_data: the report's HOST_DATA must be all zero. If the first real
+# report shows another constant value, pin it here.
+# Servury's guest policy is 0x30000: the host may use SMT. Accepted here
+# explicitly; the default refuses it.
+allow_smt = true
+# allowed_vmpl = [0]             # default
+# require_alias_check = true     # default
+
+# PLACEHOLDERS. Zero accepts any firmware and microcode level. Set these
+# from the first real report and AMD's bulletins for that CPU generation;
+# on Turin `fmc` is required as well.
+[sev_snp.min_tcb]
+bootloader = 0
+tee = 0
+snp = 0
+microcode = 0
+
+# The upstream images the binaries were copied from (deploy/sev-snp/Dockerfile).
+# The sidecar is built from the commit above and has no image digest; the
+# document's `sidecar` member records its commit and binary hash.
+[[images]]
+service = "proxy"
+image = "docker.io/library/caddy@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0"
+
+[[images]]
+service = "vaultwarden"
+image = "docker.io/vaultwarden/server@sha256:4fe17f415f90087377d37c755e0ea3cf189dcc6794e49cdd2a9adbb4937d9e1f"

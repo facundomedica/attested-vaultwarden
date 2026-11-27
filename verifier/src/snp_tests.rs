@@ -807,3 +807,41 @@ fn measured_cmdline_without_compose_hash_fails() {
     let bad = failed(&r);
     assert!(bad.contains(&CheckId::HostData) && bad.contains(&CheckId::ComposeHash));
 }
+
+/// The example Servury policy and the document its image embeds
+/// (`deploy/sev-snp/build.sh`): the policy loads, pins the document's hash,
+/// and the document passes the Config and Images checks. The REPORT is
+/// synthetic; this says nothing about what a Servury host produces.
+#[test]
+fn servury_example_policy_accepts_its_document() {
+    let policy = Policy::from_toml(include_str!(
+        "../../policy/2026.11.0-sev-snp-servury-dev.example.toml"
+    ))
+    .unwrap();
+    let app_compose =
+        include_str!("../../policy/2026.11.0-sev-snp-servury-dev.example.app-compose.json");
+    let sp = policy.sev_snp.clone().unwrap();
+    assert_eq!(sp.compose_binding, SnpComposeBinding::MeasuredCmdline);
+    assert!(sp.allow_smt && sp.host_data.is_none() && sp.allowed_vmpl == [0]);
+    assert_eq!(
+        sp.compose_hash.as_deref(),
+        Some(hex::encode(compose::compose_hash(app_compose.as_bytes())).as_str())
+    );
+    let measurement = hex::decode(&sp.measurement).unwrap();
+    let f = Fx {
+        nonce: Nonce([7; 32]),
+        spki: SpkiSha256([8; 32]),
+        app_compose: app_compose.to_owned(),
+        policy,
+    };
+    let rep = synth_cmdline(&f, |r| {
+        r[OFF_MEASUREMENT..OFF_MEASUREMENT + 48].copy_from_slice(&measurement)
+    });
+    let r = run(&f, &rep, &f.app_compose);
+    assert!(r.passed(), "{r}");
+    let services: Vec<&str> = r.observed.images.iter().map(|i| i.0.as_str()).collect();
+    assert_eq!(services, ["proxy", "vaultwarden"]);
+    // The same report with the default measurement of the other tests fails.
+    let r = run(&f, &synth_cmdline(&f, |_| {}), &f.app_compose);
+    assert!(failed(&r).contains(&CheckId::Measurements));
+}

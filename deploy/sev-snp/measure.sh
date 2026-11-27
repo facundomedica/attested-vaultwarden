@@ -89,7 +89,7 @@ if [ -n "$policy" ]; then
   fails=0
   m="$(get measurement)"
   if echo "$result" | grep -q " $m\$"; then
-    echo "✓ policy measurement is: $(echo "$result" | grep " $m\$" | cut -d' ' -f1-3 | tr -s ' ')"
+    echo "✓ policy measurement is: $(echo "$result" | grep " $m\$" | sed 's/ [0-9a-f]*$//' | tr -s ' ')"
   else
     echo "✗ policy measurement $m is none of the values above" >&2; fails=1
   fi

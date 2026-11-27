@@ -1089,8 +1089,12 @@ left free for parallel work.)
 * **No inputs but the measured command line and the network**: no SSH,
   getty, cloud-init, block driver or debug path. `avw.selftest=1` (boot
   tests) is a command-line word and so a different measurement.
-* **State in memory only**: vault and TLS key on tmpfs; a stop loses both.
-  Durability is separate work and must keep that layout. No ACME account
+* **State in memory only**: vault and TLS key on tmpfs; every stop or
+  restart of the VM loses both, and each start requests a new certificate
+  (5 per week per name at Let's Encrypt). A disk encrypted with an SNP
+  derived key was considered and not built (SNP_SERVURY.md §2.3: untestable
+  without hardware, loses data on every release, no rollback protection).
+  No ACME account
   survives a boot, so CAA `accounturi` pinning is not possible for this
   deployment; CAA can pin the CA and the validation method only.
 * **Sidecar.** `ATTEST_SNP_BINDING=measured-cmdline`: checks the document
