@@ -1,0 +1,23 @@
+# Weekly update pull requests. CI (cargo-deny, cargo-audit, tests) runs on
+# each one; nothing is merged automatically.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      cargo-minor-patch:
+        update-types: [minor, patch]
+    ignore:
+      # Pinned exactly: must equal the wasm-bindgen CLI version in
+      # web/build.sh and ci.yml. Bump all three by hand, together.
+      - dependency-name: wasm-bindgen

@@ -10,6 +10,12 @@ on:
 permissions:
   contents: read
 
+# A newer push to the same branch or pull request supersedes the run in
+# progress. Release tags have their own ref, so their runs are never cancelled.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
@@ -17,6 +23,7 @@ env:
 jobs:
   check:
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
@@ -34,6 +41,7 @@ jobs:
     # stack, the wasm crate must be clean, and the built page must pass its
     # headless test (recorded evidence, mock network; no real network).
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
@@ -52,6 +60,7 @@ jobs:
     # Local end-to-end test with the INSECURE mock platform: Vaultwarden +
     # Caddy (local CA) + sidecar, verifier against it, relay and tamper cases.
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     needs: check
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -67,6 +76,7 @@ jobs:
     # produce the same image digest (DECISIONS D-021).
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/release/')
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - run: attest-sidecar/reproducible-build.sh --check HEAD
@@ -76,16 +86,19 @@ jobs:
     # from a pinned commit). Needs network for Intel collateral.
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/release/')
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
           toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - run: docker build -t avw-dstack-simulator:73b10c6 deploy/dstack/simulator
       - run: deploy/dstack/simulator/e2e.sh
 
   deny:
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: EmbarkStudios/cargo-deny-action@81891abc19297b21343b15ef67dc61e4aea74fda # v2
@@ -94,10 +107,13 @@ jobs:
 
   audit:
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
           toolchain: stable
+      # Caches ~/.cargo/bin too, so cargo-audit is not rebuilt on every run.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - run: cargo install cargo-audit --version 0.23.0 --locked
       - run: cargo audit
