@@ -206,3 +206,83 @@ fn pre_launch_script_fails_config_check() {
     let r = run(&f, &doc(&f, f.nonce, f.spki, &ac), true);
     assert!(failed(&r).is_empty(), "{r}");
 }
+
+// ---- browser mode (no observed TLS key) ----
+
+fn run_browser(f: &Fixture, body: &[u8], allow_mock: bool) -> Report {
+    let mut r = Report::new("https://t");
+    check_document_browser(
+        body,
+        &f.nonce,
+        &f.policy,
+        &evidence::Context::mock(allow_mock),
+        &mut r,
+    );
+    r
+}
+
+#[test]
+fn browser_mode_never_claims_the_tls_binding() {
+    let f = fixture();
+    // The server reports ANY key; a page cannot tell. No SpkiBinding line.
+    let body = doc(&f, f.nonce, SpkiSha256([0xEE; 32]), &f.app_compose);
+    let r = run_browser(&f, &body, true);
+    let ids: Vec<CheckId> = r.checks.iter().map(|c| c.id).collect();
+    assert!(
+        !ids.contains(&CheckId::SpkiBinding)
+            && !ids.contains(&CheckId::ReportData)
+            && !ids.contains(&CheckId::Tls),
+        "{r}"
+    );
+    assert!(ids.contains(&CheckId::ReportDataClaimed));
+    assert!(r.checks.iter().all(|c| c.passed), "{r}");
+    let text = r.to_string();
+    assert!(!text.contains("TLS key bound to attestation:"), "{text}");
+    assert!(text.contains("is NOT done here"), "{text}");
+    assert!(text.contains("replaced by the Certificate Transparency check"));
+    assert!(r.browser_mode);
+    // Every check passed, yet without the CT check it is not PASS; and mock
+    // evidence never yields an attested key.
+    assert!(!r.passed());
+    assert_eq!(r.attested_spki, None);
+    assert!(text.ends_with(&format!(
+        "Result:  FAIL\n!!! {} !!!",
+        attested_vw_common::INSECURE_MOCK_BANNER
+    )));
+}
+
+#[test]
+fn browser_mode_refuses_mock_by_default() {
+    let f = fixture();
+    let body = doc(&f, f.nonce, f.spki, &f.app_compose);
+    let r = run_browser(&f, &body, false);
+    assert!(!r.checks.iter().all(|c| c.passed));
+    assert!(!r.passed());
+}
+
+#[test]
+fn browser_mode_stale_nonce_fails_report_data() {
+    let f = fixture();
+    let body = doc(&f, Nonce([1; 32]), f.spki, &f.app_compose);
+    let r = run_browser(&f, &body, true);
+    let failed: Vec<CheckId> = r
+        .checks
+        .iter()
+        .filter(|c| !c.passed)
+        .map(|c| c.id)
+        .collect();
+    assert_eq!(failed, vec![CheckId::Nonce, CheckId::ReportDataClaimed]);
+    assert_eq!(r.attested_spki, None);
+}
+
+#[test]
+fn cli_report_lists_images_with_full_digest() {
+    let f = fixture();
+    let body = doc(&f, f.nonce, f.spki, &f.app_compose);
+    let r = run(&f, &body, true);
+    let line = format!(
+        "  ✓ Images pinned and allowlisted: 1 services, all pinned by digest and allowlisted\n      vaultwarden  vaultwarden/server@sha256:{D}\n"
+    );
+    assert!(r.to_string().contains(&line), "{r}");
+    assert_eq!(r.exit_code(), 2);
+}

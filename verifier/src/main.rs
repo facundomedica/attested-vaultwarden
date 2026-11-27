@@ -37,6 +37,11 @@ struct Args {
     /// so a cache such as https://pccs.phala.network affects availability only.
     #[arg(long, default_value = attested_vw_verifier::fetch::INTEL_PCS_URL)]
     pccs_url: String,
+    /// Do not ask Docker Hub which tags currently point at the pinned image
+    /// digests. The lookup is display only (it never changes PASS/FAIL or
+    /// the exit code) and takes at most 5 seconds.
+    #[arg(long)]
+    no_registry_lookup: bool,
 }
 
 fn load(args: &Args) -> Result<(Policy, Roots), String> {
@@ -78,6 +83,7 @@ fn main() -> ExitCode {
     let mut opts = Options::new(roots);
     opts.allow_insecure_mock = args.allow_insecure_mock;
     opts.pccs_url = args.pccs_url.clone();
+    opts.registry_lookup = !args.no_registry_lookup;
     let report = rt.block_on(verify(&args.url, &policy, &opts));
     if args.json {
         match serde_json::to_string_pretty(&report) {

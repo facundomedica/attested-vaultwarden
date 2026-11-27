@@ -14,28 +14,56 @@ path = "src/lib.rs"
 [[bin]]
 name = "attested-vw-verify"
 path = "src/main.rs"
+required-features = ["cli"]
+
+[[example]]
+name = "record_collateral"
+required-features = ["cli"]
+
+[features]
+default = ["cli"]
+# Everything that touches the network or the OS: the TLS client, vendor
+# collateral fetches, the RNG and the command line. Without it the crate is
+# the pure, synchronous verification core (`check_document`,
+# `check_document_browser`, `ct`), which also builds for
+# wasm32-unknown-unknown (see web/).
+cli = [
+    "dep:bytes",
+    "dep:clap",
+    "dep:futures-util",
+    "dep:getrandom",
+    "dep:http-body-util",
+    "dep:hyper",
+    "dep:hyper-util",
+    "dep:reqwest",
+    "dep:rustls",
+    "dep:tokio",
+    "dep:tokio-rustls",
+    "dep:webpki-roots",
+]
 
 [dependencies]
 attested-vw-common.workspace = true
 base64.workspace = true
 dcap-qvl = { version = "0.7.1", default-features = false, features = ["std", "rustcrypto", "default-x509", "report"] }
-bytes = "1"
-clap.workspace = true
-getrandom = "0.3"
+bytes = { version = "1", optional = true }
+clap = { workspace = true, optional = true }
+futures-util = { version = "0.3", default-features = false, features = ["alloc"], optional = true }
+getrandom = { version = "0.3", optional = true }
 hex.workspace = true
-http-body-util = "0.1"
-hyper = { version = "1", default-features = false, features = ["client", "http1"] }
-hyper-util = { version = "0.1", default-features = false, features = ["tokio"] }
-reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
-rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+http-body-util = { version = "0.1", optional = true }
+hyper = { version = "1", default-features = false, features = ["client", "http1"], optional = true }
+hyper-util = { version = "0.1", default-features = false, features = ["tokio"], optional = true }
+reqwest = { version = "0.13", default-features = false, features = ["rustls"], optional = true }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"], optional = true }
 serde.workspace = true
 sev = { version = "9.0.0", default-features = false, features = ["snp", "crypto_nossl"] }
 sha2.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["time"] }
-tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
-webpki-roots = "1"
+tokio = { workspace = true, features = ["time"], optional = true }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"], optional = true }
+webpki-roots = { version = "1", optional = true }
 x509-parser = { version = "0.18", default-features = false }
 
 [lints]

@@ -4,13 +4,26 @@
 //! step is fail-closed: an error at any point records a failed check and the
 //! overall result is FAIL. [`check_document`] holds all checks that do not
 //! need the network, so they can be unit-tested against recorded fixtures.
+//!
+//! Without the default `cli` feature the crate is only that pure,
+//! synchronous core (no TLS client, no HTTP, no RNG, no clock) and builds
+//! for `wasm32-unknown-unknown`. A browser cannot read the TLS certificate
+//! of its own connection, so there the caller uses
+//! [`check_document_browser`] plus [`ct::check`] (Certificate Transparency)
+//! instead of the per-connection TLS key check.
 
 #![forbid(unsafe_code)]
 #![cfg_attr(test, allow(clippy::panic, clippy::unwrap_used, clippy::expect_used))]
 
+pub mod ct;
 pub mod evidence;
+#[cfg(feature = "cli")]
 pub mod fetch;
+#[cfg(feature = "cli")]
 pub mod net;
+#[cfg(feature = "cli")]
+mod online;
+pub mod registry;
 pub mod report;
 pub mod snp;
 pub mod tdx;
@@ -19,155 +32,77 @@ use attested_vw_common::compose;
 use attested_vw_common::policy::Policy;
 use attested_vw_common::report_data::{self, Nonce, SpkiSha256};
 use attested_vw_common::schema::{AttestationResponse, Platform, SCHEMA_VERSION};
-use attested_vw_common::tls;
 
+#[cfg(feature = "cli")]
 pub use net::Roots;
+#[cfg(feature = "cli")]
+pub use online::{Options, verify};
 pub use report::{Check, CheckId, Observed, Report};
-
-/// Options controlling a verification run.
-#[derive(Debug, Clone)]
-pub struct Options {
-    /// Accept the INSECURE mock platform (local development only). Even when
-    /// set, a mock result never counts as PASS.
-    pub allow_insecure_mock: bool,
-    /// Trust anchors for the TLS connection.
-    pub roots: Roots,
-    /// Where to fetch Intel DCAP collateral (Intel PCS by default). The
-    /// collateral is Intel-signed, so the source affects availability only.
-    pub pccs_url: String,
-    /// AMD Key Distribution Service base URL (VCEK certificates).
-    pub kds_url: String,
-}
-
-impl Options {
-    pub fn new(roots: Roots) -> Self {
-        Self {
-            allow_insecure_mock: false,
-            roots,
-            pccs_url: fetch::INTEL_PCS_URL.to_owned(),
-            kds_url: fetch::AMD_KDS_URL.to_owned(),
-        }
-    }
-}
-
-fn fresh_nonce() -> Result<Nonce, String> {
-    let mut n = [0u8; 32];
-    getrandom::fill(&mut n).map_err(|e| format!("OS random number generator failed: {e}"))?;
-    Ok(Nonce(n))
-}
-
-fn unix_now() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
-}
-
-/// Verify a deployment at `target` (an `https://` origin) against `policy`.
-///
-/// If the only problem is a TLS key mismatch, the run is repeated once on a
-/// fresh connection, because a certificate renewal between our handshake and
-/// the sidecar reading the certificate produces exactly that. A relay fails
-/// both times.
-pub async fn verify(target: &str, policy: &Policy, opts: &Options) -> Report {
-    let first = verify_once(target, policy, opts).await;
-    let failures: Vec<CheckId> = first
-        .checks
-        .iter()
-        .filter(|c| !c.passed)
-        .map(|c| c.id)
-        .collect();
-    let spki_only = !failures.is_empty()
-        && failures
-            .iter()
-            .all(|id| matches!(id, CheckId::SpkiBinding | CheckId::ReportData));
-    if !spki_only {
-        return first;
-    }
-    let mut second = verify_once(target, policy, opts).await;
-    second.notes.push(
-        "first attempt failed on the TLS key binding; retried once on a new connection".into(),
-    );
-    second
-}
-
-async fn verify_once(target: &str, policy: &Policy, opts: &Options) -> Report {
-    let mut report = Report::new(target);
-    report.policy_release = Some(policy.release.clone());
-    report.notes.push(match &opts.roots {
-        Roots::WebPki => "TLS trust roots: Mozilla WebPKI (webpki-roots)".into(),
-        Roots::Custom(_) => "TLS trust roots: custom CA file only (NOT WebPKI)".into(),
-    });
-
-    let t = match net::Target::parse(target) {
-        Ok(t) => t,
-        Err(e) => {
-            report.fail(CheckId::Tls, e.to_string());
-            return report;
-        }
-    };
-    let nonce = match fresh_nonce() {
-        Ok(n) => n,
-        Err(e) => {
-            report.fail(CheckId::Fetch, e);
-            return report;
-        }
-    };
-    let fetched = match net::fetch(&t, &opts.roots, &nonce).await {
-        Ok(f) => f,
-        Err(e @ (net::NetError::Status(..) | net::NetError::Http(_))) => {
-            report.pass(CheckId::Tls, "handshake ok");
-            report.fail(CheckId::Fetch, e.to_string());
-            return report;
-        }
-        Err(e) => {
-            report.fail(CheckId::Tls, e.to_string());
-            return report;
-        }
-    };
-    let spki = match tls::spki_sha256_from_der(&fetched.leaf_der) {
-        Ok(s) => s,
-        Err(e) => {
-            report.fail(CheckId::Tls, format!("cannot parse leaf certificate: {e}"));
-            return report;
-        }
-    };
-    report.pass(
-        CheckId::Tls,
-        format!(
-            "{} to {}:{}, certificate valid for host; leaf SPKI SHA-256 {spki}",
-            fetched.tls_version, t.host, t.port
-        ),
-    );
-
-    // Fetch platform endorsements (Intel collateral / AMD VCEK) for the
-    // evidence. These are signed by the vendor and checked offline below.
-    let mut ctx = evidence::Context::mock(opts.allow_insecure_mock);
-    ctx.now_secs = unix_now();
-    if let Ok(doc) = serde_json::from_slice::<AttestationResponse>(&fetched.body)
-        && let Ok(quote) = evidence::decode_quote(&doc.evidence)
-    {
-        match doc.platform {
-            Platform::Tdx => {
-                ctx.tdx_collateral = fetch::tdx_collateral(&opts.pccs_url, &quote).await
-            }
-            Platform::SevSnp => ctx.snp_vcek_der = fetch::snp_vcek(&opts.kds_url, &quote).await,
-            Platform::Mock => {}
-        }
-    }
-    check_document(&fetched.body, &spki, &nonce, policy, &ctx, &mut report);
-    report
-}
 
 fn hex_eq(expected: &str, got: &[u8]) -> bool {
     expected.eq_ignore_ascii_case(&hex::encode(got))
 }
+
+/// What the verifier knows about the TLS key of the connection the
+/// document arrived on.
+#[derive(Debug, Clone, Copy)]
+enum TlsKey<'a> {
+    /// The verifier did the handshake itself and hashed the leaf SPKI.
+    Observed(&'a SpkiSha256),
+    /// A web page: the browser validated the certificate but does not show
+    /// it to scripts.
+    Unobservable,
+}
+
+/// Note recorded on every browser-mode report.
+pub const BROWSER_MODE_NOTE: &str = "browser mode: a web page cannot read the TLS certificate of its own connection, so the per-connection check \"TLS key bound to attestation\" is NOT done here; it is replaced by the Certificate Transparency check (every currently valid logged certificate for the name must have an attested key)";
 
 /// All checks after the network step. `our_spki` and `our_nonce` come from
 /// the verifier's own handshake and RNG, never from the document.
 pub fn check_document(
     body: &[u8],
     our_spki: &SpkiSha256,
+    our_nonce: &Nonce,
+    policy: &Policy,
+    ctx: &evidence::Context,
+    report: &mut Report,
+) {
+    check_document_inner(
+        body,
+        TlsKey::Observed(our_spki),
+        our_nonce,
+        policy,
+        ctx,
+        report,
+    );
+}
+
+/// The same checks for a verifier that cannot see the TLS certificate (a web
+/// page). Differences from [`check_document`]:
+///
+/// * no `SpkiBinding` check is recorded (neither ✓ nor ✗); the report is
+///   marked `browser_mode` and carries [`BROWSER_MODE_NOTE`];
+/// * `report_data` is recomputed from our nonce and the SPKI hash **the
+///   server reports** (`ReportDataClaimed`). That proves a genuine TD with
+///   this software vouches for that key, not that our connection uses it;
+/// * if that holds, `report.attested_spki` is set, for [`ct::check`], which
+///   must then be run on the same report: without a `CtBinding` check a
+///   browser-mode report is never PASS.
+pub fn check_document_browser(
+    body: &[u8],
+    our_nonce: &Nonce,
+    policy: &Policy,
+    ctx: &evidence::Context,
+    report: &mut Report,
+) {
+    report.browser_mode = true;
+    report.notes.push(BROWSER_MODE_NOTE.to_owned());
+    check_document_inner(body, TlsKey::Unobservable, our_nonce, policy, ctx, report);
+}
+
+fn check_document_inner(
+    body: &[u8],
+    tls_key: TlsKey<'_>,
     our_nonce: &Nonce,
     policy: &Policy,
     ctx: &evidence::Context,
@@ -216,25 +151,35 @@ pub fn check_document(
         );
         return;
     }
-    report.pass(
-        CheckId::Fetch,
-        format!("same TLS connection, {} bytes", body.len()),
-    );
+    match tls_key {
+        TlsKey::Observed(_) => report.pass(
+            CheckId::Fetch,
+            format!("same TLS connection, {} bytes", body.len()),
+        ),
+        TlsKey::Unobservable => report.pass(
+            CheckId::Fetch,
+            format!(
+                "fetched by the browser over HTTPS (certificate validated by the browser, not visible to this page), {} bytes",
+                body.len()
+            ),
+        ),
+    }
 
     // TLS key binding (informative; the binding proper is the report_data check).
-    if doc.spki_sha256 == *our_spki {
-        report.pass(
+    match tls_key {
+        TlsKey::Observed(our_spki) if doc.spki_sha256 == *our_spki => report.pass(
             CheckId::SpkiBinding,
             "attested SPKI equals the certificate we received",
-        );
-    } else {
-        report.fail(
+        ),
+        TlsKey::Observed(our_spki) => report.fail(
             CheckId::SpkiBinding,
             format!(
                 "attestation is for TLS key {} but this connection uses {our_spki}: the TLS endpoint is not the attested server (relay?) or the certificate just rotated",
                 doc.spki_sha256
             ),
-        );
+        ),
+        // Deliberately no check line: nothing was compared.
+        TlsKey::Unobservable => {}
     }
 
     if doc.nonce == *our_nonce {
@@ -259,18 +204,47 @@ pub fn check_document(
     }
     report.pass(CheckId::Evidence, verified.summary.clone());
 
-    // report_data recomputed from OUR values only.
-    let expected = report_data::compute(our_nonce, our_spki);
-    if verified.report_data == expected {
-        report.pass(
-            CheckId::ReportData,
-            "signed report_data = SHA-512(tag ‖ our nonce ‖ our TLS SPKI)",
-        );
-    } else {
-        report.fail(
-            CheckId::ReportData,
-            "signed report_data does not match our nonce and TLS key",
-        );
+    match tls_key {
+        // report_data recomputed from OUR values only.
+        TlsKey::Observed(our_spki) => {
+            let expected = report_data::compute(our_nonce, our_spki);
+            if verified.report_data == expected {
+                report.pass(
+                    CheckId::ReportData,
+                    "signed report_data = SHA-512(tag ‖ our nonce ‖ our TLS SPKI)",
+                );
+            } else {
+                report.fail(
+                    CheckId::ReportData,
+                    "signed report_data does not match our nonce and TLS key",
+                );
+            }
+        }
+        // Our nonce, the SERVER's statement of its TLS key. Only a non-mock
+        // platform can make that statement count.
+        TlsKey::Unobservable => {
+            let expected = report_data::compute(our_nonce, &doc.spki_sha256);
+            if verified.report_data == expected {
+                report.pass(
+                    CheckId::ReportDataClaimed,
+                    format!(
+                        "signed report_data = SHA-512(tag ‖ our nonce ‖ SPKI {}): this key is attested; whether clients reach it is the Certificate Transparency check",
+                        doc.spki_sha256
+                    ),
+                );
+                if doc.platform != Platform::Mock {
+                    report.attested_spki = Some(doc.spki_sha256.to_string());
+                }
+            } else {
+                report.fail(
+                    CheckId::ReportDataClaimed,
+                    format!(
+                        "signed report_data does not match our nonce and the TLS key the server reports ({})",
+                        doc.spki_sha256
+                    ),
+                );
+            }
+        }
     }
 
     // Measurements, event log and the measured compose hash.
@@ -407,6 +381,10 @@ pub fn check_document(
                 let msg: Vec<String> = problems.iter().map(|p| p.to_string()).collect();
                 report.fail(CheckId::Images, msg.join("; "));
             }
+            // One line per service with the full reference. Tag names are
+            // added later, outside the core, and never affect the verdict.
+            let lines = registry::sub_lines(&report.observed.images, &[]);
+            report.set_sub(CheckId::Images, lines);
             if doc.image_digests != imgs {
                 report.notes.push(
                     "note: informational `image_digests` field differs from the measured compose (ignored)".into(),

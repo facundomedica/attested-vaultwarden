@@ -276,3 +276,38 @@ fn storage_encryption_required_but_not_reported() {
         "{r}"
     );
 }
+
+#[test]
+fn browser_mode_real_quote() {
+    // Same baseline in browser mode: the quote's report_data (0x42…) is not
+    // ours, so no key is attested and the CT check cannot pass either.
+    let c = case();
+    let mut r = Report::new("https://fixture");
+    let body = serde_json::to_vec(&c.doc).unwrap();
+    check_document_browser(&body, &c.nonce, &c.policy, &c.ctx, &mut r);
+    assert_eq!(
+        failed(&r),
+        vec![CheckId::ReportDataClaimed, CheckId::ComposeHash],
+        "{r}"
+    );
+    assert!(r.checks.iter().all(|c| c.id != CheckId::SpkiBinding));
+    assert_eq!(r.attested_spki, None);
+    let spki = c.spki.to_string();
+    let page = serde_json::json!([{
+        "id": "1", "dns_names": ["fixture.example"], "pubkey_sha256": spki,
+        "not_before": "2026-11-01T00:00:00Z", "not_after": "2027-02-01T00:00:00Z",
+    }])
+    .to_string();
+    ct::check(
+        &ct::CtQuery {
+            host: "fixture.example",
+            exact_pages: &[page],
+            parent_pages: None,
+            now_secs: c.ctx.now_secs,
+            known_spkis: &[],
+        },
+        &mut r,
+    );
+    assert!(failed(&r).contains(&CheckId::CtBinding), "{r}");
+    assert!(r.to_string().ends_with("Result:  FAIL"));
+}
