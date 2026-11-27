@@ -1,0 +1,32 @@
+# Example release policy for a Google Cloud Confidential Space deployment.
+# Copy to policy/<release>.toml and replace the image line with the
+# reference and digest printed by deploy/gcp-cs/build.sh for YOUR domain
+# (the domain is baked into the image, so each domain has its own digest).
+#
+# What a PASS against this policy means, and what it does not, is in
+# docs/GCP_CONFIDENTIAL_SPACE.md ("Trust"): unlike the dstack/TDX policies,
+# the statement is signed by Google's attestation service, not checked
+# against a hardware quote by the verifier.
+schema = 1
+release = "EXAMPLE-gcp-cs"
+date = "2026-11-27"
+platform = "gcp-cs"
+
+[gcp_cs]
+# Only Intel TDX: the one Confidential Space technology where Google's
+# verifier checks a CPU-signed quote. "GCP_AMD_SEV" would rest on the
+# Google-operated vTPM alone.
+hwmodel = ["GCP_INTEL_TDX"]
+# The Confidential Space image must still be supported by Google.
+support_attribute = "STABLE"
+# Launcher restart policy the VM must have been created with.
+restart_policy = "Always"
+# Optional pins:
+# min_swversion = 260900
+# accepted_tdx_tcb_status = ["UpToDate"]
+# project_id = "my-project"
+
+# Exactly one image: the single workload container.
+[[images]]
+service = "workload"
+image = "europe-west4-docker.pkg.dev/example-project/attested-vw/attested-vw-gcp-cs@sha256:0000000000000000000000000000000000000000000000000000000000000000"

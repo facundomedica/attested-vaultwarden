@@ -8,13 +8,14 @@
 //!
 //! | Variable | Meaning |
 //! |----------|---------|
-//! | `ATTEST_PLATFORM` | `mock` (INSECURE), `dstack`, or `sev-snp` (configfs-tsm; untested on hardware) |
+//! | `ATTEST_PLATFORM` | `mock` (INSECURE), `dstack`, `sev-snp` (configfs-tsm; untested on hardware) or `gcp-cs` (never run on GCP) |
 //! | `ATTEST_INSECURE_MOCK` | must be `1` for `mock` to start |
 //! | `ATTEST_LISTEN` | listen address, default `0.0.0.0:8081` |
 //! | `ATTEST_CERT_PATH` | PEM file whose first certificate is the TLS leaf |
 //! | `ATTEST_APP_COMPOSE_PATH` | app-compose document (mock and sev-snp; dstack reads it from the guest agent). On sev-snp its SHA-256 must equal the guest's `HOST_DATA` or the sidecar refuses to start |
 //! | `ATTEST_TSM_REPORT_DIR` | configfs-tsm report directory, default `/sys/kernel/config/tsm/report` |
 //! | `ATTEST_DSTACK_SOCKET` | guest agent socket, default `/var/run/dstack.sock` |
+//! | `ATTEST_GCP_CS_SOCKET` | Confidential Space launcher socket, default `/run/container_launcher/teeserver.sock` |
 //! | `ATTEST_RATE_PER_SEC` | request budget per second and client address (last `X-Forwarded-For` element, written by the proxy), default 5 |
 //! | `ATTEST_GLOBAL_RATE_PER_SEC` | request budget per second for all clients together, default 40 |
 
@@ -24,6 +25,7 @@
 mod app;
 mod configfs_tsm;
 mod dstack;
+mod gcp_cs;
 mod providers;
 
 use std::net::SocketAddr;
@@ -104,6 +106,14 @@ async fn run() -> Result<(), String> {
             configfs_tsm::check_host_data(&host_data, &app_compose)?;
             let state = app::State::new(provider, cert_path, app_compose, rates)
                 .map_err(|e| format!("app-compose: {e}"))?;
+            app::router(Arc::new(state))
+        }
+        "gcp-cs" => {
+            let socket = std::env::var("ATTEST_GCP_CS_SOCKET")
+                .unwrap_or_else(|_| attested_vw_common::gcp_cs::DEFAULT_SOCKET.to_owned());
+            // No compose document on this platform: the single workload
+            // image is named by the token's claims.
+            let state = app::State::without_compose(gcp_cs::GcpCs::new(socket), cert_path, rates);
             app::router(Arc::new(state))
         }
         other => return Err(format!("unknown ATTEST_PLATFORM `{other}`")),

@@ -32,6 +32,7 @@ fn fixture() -> Fixture {
         platform: Platform::Mock,
         tdx: None,
         sev_snp: None,
+        gcp_cs: None,
         mock: Some(MockPolicy {
             compose_hash: hex::encode(compose::compose_hash(app_compose.as_bytes())),
         }),

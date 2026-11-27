@@ -118,6 +118,7 @@ fn fx() -> Fx {
         platform: Platform::SevSnp,
         tdx: None,
         sev_snp: Some(sev_snp),
+        gcp_cs: None,
         mock: None,
         images: vec![ImagePolicy {
             service: "vaultwarden".into(),

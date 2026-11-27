@@ -1,0 +1,27 @@
+{
+ "_comment": "TEST-ONLY RSA keys generated for unit tests (openssl genrsa 2048). They sign fake attestation tokens in verifier/src/gcp_cs_tests.rs and are trusted by nothing.",
+ "keys": [
+  {
+   "kty": "RSA",
+   "alg": "RS256",
+   "use": "sig",
+   "kid": "test-key-1",
+   "n": "ldqREAnZgUqbatPb0R5zJKl_BXHYmhW1tPaqR9YK2ynZnmVP3ACZjYFIIxM4acLiSdUg3isIJdWCHBA3dT63n6P77GCnlUVeFBBqOyRWN_bhuwI8OC2ikIFbJbJ6gOkipB7xcEioXoa7Bl0J1JkN6laNfVLXuoTBQaZIjHGxugni4rLXd6EQLsdI3W6qmkaCXQC9HiBs4xu0Dbrk6hJ6TCwNXOtXhtrLmhrxedCX8K30Y2dIlXy8m6dvw_M-0GIFhvc5GylHO5TE-XP5XxtkC9NsGldrPh2k-GP8-aNwO1wPSfsm5yVZj-jCQxfxLmYGir0vNvsfP3R44ZIxVpHi9w",
+   "e": "AQAB",
+   "d": "AiRwJFSg3FeLWoyxiphO6z6d8p9WHJ0_jiI_xfT-xOEzEnj-daOB_DDVm4kMc6F6jJD0YtZvp0_1B7pketzWLMZN4w-501JqoEGFP9fqyaHkbK6ltnZ2124sSFfmFJeS8LVLHHww3Jdg70CRr3sKG6zBPYISVC7OZerMuyXZPq5BLDQZrweJ_haliA0FxZ4KbFkHo3mnC9Ea6z0yOVt3awAC3yeQVGhpV3V3jY4OuW6Lm_cLh-UwWW-mNfiooJQLWk598bayg3wSOQ-HEQN2ddnPZvNIaxJYcLYVvaabzvBzUwHPzuA9HIAEHvJgx6li1K0Z1T9i2r4uqDxEwh58zQ",
+   "p": "0oi35q1P9cT7CBEHgj8FCCZ1zSZHCSdApBXknXQAvKGyXcokA1DD6AwOfpq5MmANr_3tJWf3Zo3tpoigCoRBEYI5PQWZdOeAIv8x8pVNY_QKp1lNCcYIQcjuKyCcMO6kmS6gW9JYQY-k6n0qWWyz8-Krilu5abbbYq6FQLTNpHU",
+   "q": "tjcqfpUXstyxhYVs9qX6Sf-Tvj0DxiArRR2SABz7dKnKxgfgboIKd3fQGZilJeKPtLFB1T6dr0TmUmugF64ENFjcwKOLvTNi9HU986uVvbCLl8FrWxt7psaNIr0LJGmC1Lw2e_fOXaY4KIsQ7x8xjsj0IdzvDDX5VMXWCpSpjDs"
+  },
+  {
+   "kty": "RSA",
+   "alg": "RS256",
+   "use": "sig",
+   "kid": "test-key-2",
+   "n": "zXB62qEMqfMgYpdouGF5YMShJfyX5xDZhgcF3SSzMzzTWn2QxMrbq1QhvHiARi3IzoOwlTOWjgHpLMnzCtjyN0ARJlVw49fbCTg1lEhk9KlqmEl9SpgF7XuV-7fTbM8Yg_lZJn5779j81MlQB_n7wEM1oJ6A2baQEWjFnjRpwtZHi4JA1XAVfjQvt_lPTOvLBwqjWA5c9n_HcDWrsZW3AEQ9L8RbZF0Il7edCAJEwk-4UzoIcEbZwAE_jMhMSiiCKVKs39qaql_GAgNjpNiH1m9eoQ8RDY79lofXDERkoRRnB8g6zZQbZFdD4RZQWFP5zzpRIXUjvNHxFC4TQdZLvQ",
+   "e": "AQAB",
+   "d": "B6jfc8JYcge2F-b0SRedSm3aYkuyMDPRIG2nmtCw-8KTUMbovGWh3hfzcA8AHV28pHKFhXKYdO_-TSS0cp2XHlc9rHO4E06rhIL7gG1YkkS0zDvFN6BGbE3U0D9Q2zg3fkgwOj6yCUXKW3asDLgV2lvHJpdyT2u-oF-LKrRikxiQFIkSL2AwiH2BtkOWLqX0tWIErc_bb1Tt8q4wB4y37LkQZoNv2xCVlauHaVCBzrZ64KCphkT0WCdfT-Jh6jMniTiupTHYYLZbGrdj7E5PA1RbcdbMA3dSRYWCzUhtOrLAkg93BlZ2Ut49LPoYl0qlPCljzDAXV0Rfy_yY2AVbYw",
+   "p": "6g1tqq7AlhyksPhw5uOShyByL3ulbVRM9zvAvW9SevpS8wpyTpkN7dSFO1rqJJDdsBVBAYI4MZClh3lFdGR10Ozl01Lr9a1LL4rHd5QWQDRFJgm1FY2QjnS_YZMqhNHfmxFhJProoJG5xS99Bkzp8tXpsXdx26j50GQIhdaWJas",
+   "q": "4LQtV0vJVRalvLCf4afUBAJjOV2whNr_L5WdWVvnniT0eN00d3_8vc6NXSKZjbRtabeanYps4jcJN9BIPzCMHPNGQcFDwrySRqAKqqt6AlCrUY7JoL5ZFfBNlbXyevUU607FQzVB9jRbYcFWfiA8-W06NSjYiIZHzayYgBngnDc"
+  }
+ ]
+}

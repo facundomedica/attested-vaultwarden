@@ -176,6 +176,9 @@ pub struct Observed {
     pub snp_host_data: Option<String>,
     /// Host-declared dstack vm_config, if the server sent it (unmeasured).
     pub vm_config: Option<serde_json::Value>,
+    /// gcp-cs: claims read from the Google-signed token.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gcp_cs: Option<serde_json::Value>,
 }
 
 impl Report {

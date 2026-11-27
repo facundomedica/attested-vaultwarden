@@ -9,7 +9,7 @@ use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as B64;
 use dcap_qvl::QuoteCollateralV3;
 
-use crate::{snp, tdx};
+use crate::{gcp_cs, snp, tdx};
 
 #[derive(Debug, thiserror::Error)]
 pub enum EvidenceError {
@@ -31,6 +31,10 @@ pub enum EvidenceError {
     Tdx(#[from] tdx::TdxError),
     #[error(transparent)]
     Snp(#[from] snp::SnpError),
+    #[error("Google's signing keys are not available: {0}")]
+    NoJwks(String),
+    #[error(transparent)]
+    GcpCs(#[from] gcp_cs::GcpError),
 }
 
 /// Inputs to evidence verification that do not come from the server.
@@ -43,6 +47,10 @@ pub struct Context {
     pub tdx_collateral: Result<QuoteCollateralV3, String>,
     /// VCEK (DER) for the SNP report (from AMD KDS, or recorded in tests).
     pub snp_vcek_der: Result<Vec<u8>, String>,
+    /// JWKS (JSON text) that Confidential Space tokens must be signed by.
+    /// This is the trust anchor for `gcp-cs`: the CLI fetches it from the
+    /// pinned Google URL; only tests put anything else here.
+    pub gcp_jwks: Result<String, String>,
 }
 
 impl Context {
@@ -53,6 +61,7 @@ impl Context {
             now_secs: 0,
             tdx_collateral: Err("not fetched".into()),
             snp_vcek_der: Err("not fetched".into()),
+            gcp_jwks: Err("not fetched".into()),
         }
     }
 }
@@ -63,6 +72,7 @@ pub enum Measured {
     Mock,
     Tdx(Box<tdx::VerifiedQuote>),
     Snp(snp::VerifiedReport),
+    GcpCs(Box<gcp_cs::VerifiedToken>),
 }
 
 #[derive(Debug)]
@@ -158,6 +168,25 @@ pub fn verify(
                     v.product, v.reported_tcb, v.report.vmpl
                 ),
                 measured: Measured::Snp(v),
+            })
+        }
+        Platform::GcpCs => {
+            if policy.gcp_cs.is_none() {
+                return Err(EvidenceError::PolicyMissing("gcp_cs"));
+            }
+            let token = decode_quote(ev)?;
+            let jwks = ctx
+                .gcp_jwks
+                .as_ref()
+                .map_err(|e| EvidenceError::NoJwks(e.clone()))?;
+            let v = gcp_cs::verify_token(&token, jwks, ctx.now_secs)?;
+            Ok(Verified {
+                report_data: v.report_data,
+                summary: format!(
+                    "Google Cloud Attestation token: RS256 signature valid under Google key {}, issuer, audience and validity window ok (no raw hardware quote is seen by this verifier)",
+                    v.kid
+                ),
+                measured: Measured::GcpCs(Box::new(v)),
             })
         }
     }

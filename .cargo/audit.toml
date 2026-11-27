@@ -1,4 +1,5 @@
 # Same exceptions as deny.toml, with the same justification: both advisories
-# reach us only through VirTEE `sev`, used to verify public signatures.
+# concern private-key operations, and we only verify public signatures
+# (through VirTEE `sev`, and `rsa` directly for Google attestation tokens).
 [advisories]
 ignore = ["RUSTSEC-2023-0071", "RUSTSEC-2026-0387"]

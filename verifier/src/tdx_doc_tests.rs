@@ -87,6 +87,7 @@ fn case() -> Case {
             require_storage_encrypted: false,
         }),
         sev_snp: None,
+        gcp_cs: None,
         mock: None,
         images: vec![ImagePolicy {
             service: "vaultwarden".into(),
@@ -104,6 +105,7 @@ fn case() -> Case {
         now_secs: f.now,
         tdx_collateral: Ok(f.collateral),
         snp_vcek_der: Err("n/a".into()),
+        gcp_jwks: Err("n/a".into()),
     };
     Case {
         doc,

@@ -175,6 +175,21 @@ impl<P: QuoteProvider> State<P> {
     }
 }
 
+impl<P: QuoteProvider> State<P> {
+    /// For platforms with no measured compose document (gcp-cs): the
+    /// document's `app_compose` is empty and `image_digests` is `[]`.
+    pub fn without_compose(provider: P, cert_path: PathBuf, rates: Rates) -> Self {
+        Self {
+            provider,
+            cert_path,
+            app_compose: String::new(),
+            images: Vec::new(),
+            limiter: RateLimiter::new(rates),
+            in_flight: Semaphore::new(MAX_CONCURRENT),
+        }
+    }
+}
+
 pub fn router<P: QuoteProvider>(state: Arc<State<P>>) -> Router {
     Router::new()
         .route(attested_vw_common::ATTESTATION_PATH, get(handler::<P>))
