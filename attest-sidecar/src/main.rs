@@ -14,7 +14,8 @@
 //! | `ATTEST_CERT_PATH` | PEM file whose first certificate is the TLS leaf |
 //! | `ATTEST_APP_COMPOSE_PATH` | measured app-compose document (mock only; dstack reads it from the guest agent) |
 //! | `ATTEST_DSTACK_SOCKET` | guest agent socket, default `/var/run/dstack.sock` |
-//! | `ATTEST_RATE_PER_SEC` | global request budget per second, default 5 |
+//! | `ATTEST_RATE_PER_SEC` | request budget per second and client address (last `X-Forwarded-For` element, written by the proxy), default 5 |
+//! | `ATTEST_GLOBAL_RATE_PER_SEC` | request budget per second for all clients together, default 40 |
 
 #![forbid(unsafe_code)]
 #![cfg_attr(test, allow(clippy::panic, clippy::unwrap_used, clippy::expect_used))]
@@ -49,10 +50,14 @@ async fn run() -> Result<(), String> {
         .unwrap_or_else(|_| "0.0.0.0:8081".to_owned())
         .parse()
         .map_err(|e| format!("ATTEST_LISTEN: {e}"))?;
-    let rate: u32 = std::env::var("ATTEST_RATE_PER_SEC")
-        .unwrap_or_else(|_| "5".to_owned())
-        .parse()
-        .map_err(|e| format!("ATTEST_RATE_PER_SEC: {e}"))?;
+    let rate = |name: &str, default: u32| match std::env::var(name) {
+        Ok(v) => v.parse::<u32>().map_err(|e| format!("{name}: {e}")),
+        Err(_) => Ok(default),
+    };
+    let rates = app::Rates {
+        per_client: rate("ATTEST_RATE_PER_SEC", app::Rates::DEFAULT.per_client)?,
+        global: rate("ATTEST_GLOBAL_RATE_PER_SEC", app::Rates::DEFAULT.global)?,
+    };
     let cert_path = PathBuf::from(env("ATTEST_CERT_PATH")?);
 
     let platform = env("ATTEST_PLATFORM")?;
@@ -65,7 +70,7 @@ async fn run() -> Result<(), String> {
             let compose_path = env("ATTEST_APP_COMPOSE_PATH")?;
             let app_compose = std::fs::read_to_string(&compose_path)
                 .map_err(|e| format!("reading {compose_path}: {e}"))?;
-            let state = app::State::new(providers::Mock, cert_path, app_compose, rate)
+            let state = app::State::new(providers::Mock, cert_path, app_compose, rates)
                 .map_err(|e| format!("app-compose: {e}"))?;
             app::router(Arc::new(state))
         }
@@ -77,7 +82,7 @@ async fn run() -> Result<(), String> {
                 .app_compose()
                 .await
                 .map_err(|e| format!("reading app-compose from guest agent: {e}"))?;
-            let state = app::State::new(provider, cert_path, app_compose, rate)
+            let state = app::State::new(provider, cert_path, app_compose, rates)
                 .map_err(|e| format!("app-compose: {e}"))?;
             app::router(Arc::new(state))
         }
