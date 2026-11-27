@@ -232,10 +232,10 @@ await test("recorded TDX evidence through the page's whole pipeline", async () =
   assert.match(again.text, /\n {8}\(Docker Hub tag lookup failed: blocked by the browser/);
 });
 
-await test("server without CORS (release before 2026.11.3): clear error", async () => {
+await test("server without CORS (release before 2026.11.4): clear error", async () => {
   const { output } = await go({ cors: false });
   assert.deepEqual(marks(output), ["-fetch"]);
-  assert.match(output.text, /sends no Access-Control-Allow-Origin header \(releases before 2026\.11\.3 do not\)/);
+  assert.match(output.text, /sends no Access-Control-Allow-Origin header \(releases before 2026\.11\.4 do not\)/);
   assert.match(output.text, /use the command-line verifier/);
   assert.match(output.text, /Result: {2}FAIL$/);
 });

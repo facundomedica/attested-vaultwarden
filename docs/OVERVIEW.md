@@ -96,10 +96,10 @@ CVM and app id (`8a1aa54c…`). All are development releases.
 | `2026.11.2-phala-dev` | 2026-11-27 | Sidecar rebuilt; policy pins `app_id`, requires the encrypted-disk event | PASS; same policy with another `app_id` → FAIL | [verify](../demo/live/verify-2026.11.2.expected.txt), [reproduce](../policy/2026.11.2-phala-dev.reproduce.txt) |
 | `2026.11.4-phala-dev` | 2026-11-27 | TLS key and `config.json` on tmpfs; measured pre-launch cleanup; CORS for the browser verifier; pins `public_logs`, `min_tcb_eval_data_number`, `mr_config_id` | PASS; wrong `app_id` → FAIL; restart → PASS with a **different TLS key**; pre-launch cleanup seen in the serial log; browser verifier run | [verify](../demo/live/verify-2026.11.4.expected.txt), [after restart](../demo/live/verify-2026.11.4-after-restart.expected.txt), [reproduce](../policy/2026.11.4-phala-dev.reproduce.txt), [browser run](../web/testdata/live-2026-11-27-vault.facundo.dev.json) |
 
-There is no release numbered 2026.11.3 in `policy/`. The browser verifier
-and its documentation say "releases before 2026.11.3" for servers whose
-attestation route sends no CORS header; the first deployed release that
-sends it is 2026.11.4.
+There is no release numbered 2026.11.3 in `policy/` (it was prepared for
+`vault.warden.facundo.dev`, which Phala never routed, and never published).
+The first published release whose attestation route sends a CORS header,
+and so the first a browser can verify, is 2026.11.4.
 
 The first two policies no longer load in the current verifier (they have
 no `app_id`, which D-049 made mandatory). They are historical records and
@@ -224,10 +224,13 @@ was internal; nobody outside the project has audited the code.
 | Persistence on Confidential Space through Cloud KMS | Considered | The operator administers the KMS key, and a remote user cannot see that; it would add nothing a verifier can tell a user | D-051 |
 | Depending on atlas-rs or dstack-sdk | Read as references | Not usable offline with injected time and collateral; large dependency tree inside the TEE | D-005, D-007 |
 
-Two DNS leftovers of abandoned experiments were reported at the time as
-still in the zone and harmless: the `warden` records (D-052) and the
-`gcp` records (D-053). Whether they have since been removed is not
-recorded here.
+DNS leftovers of abandoned experiments, still in the zone on 2026-11-27
+(checked with dig): the `vault.warden` CNAME/TXT and the CAA set at
+`warden` (D-052) are harmless. The `vault.gcp` A record still points at
+the released GCP address `34.178.235.11` (CAA at `gcp` allows any Let's
+Encrypt account): whoever is assigned that address could obtain a valid
+certificate for `vault.gcp.facundo.dev`. It is not a name any release
+uses, but it should be deleted.
 
 ## 6. What a PASS is worth today
 

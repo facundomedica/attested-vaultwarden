@@ -132,9 +132,8 @@ list comes from one monitor, Cert Spotter, which is trusted to be complete;
 keys attested in the past count for as long as their certificates are
 valid; Intel collateral is fetched from Phala's mirror because Intel's
 service does not answer web pages (it is Intel-signed and verified either
-way). Servers older than release 2026.11.3 cannot be checked from a
-browser (no release was published under that number; of the published
-ones, 2026.11.4 is the first that can). Details: `web/README.md`.
+way). Servers older than release 2026.11.4 cannot be checked from a
+browser: their attestation route sends no CORS header. Details: `web/README.md`.
 
 The page handles all three platforms and fetches the vendor material at
 each run rather than carrying a copy:

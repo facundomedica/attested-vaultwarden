@@ -59,7 +59,7 @@ const AVW = (() => {
       }
       return {
         fetch_error: reachable
-          ? `${host} answered, but the browser did not let this page read ${ATTESTATION_PATH}: the server sends no Access-Control-Allow-Origin header (releases before 2026.11.3 do not), or it redirected. A web page cannot verify such a server; use the command-line verifier`
+          ? `${host} answered, but the browser did not let this page read ${ATTESTATION_PATH}: the server sends no Access-Control-Allow-Origin header (releases before 2026.11.4 do not), or it redirected. A web page cannot verify such a server; use the command-line verifier`
           : `could not reach https://${host}${ATTESTATION_PATH} (${e && e.name === "AbortError" ? "timed out" : "network or TLS error; the browser gives a page no detail"})`,
       };
     }

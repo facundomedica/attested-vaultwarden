@@ -86,10 +86,9 @@ Other differences from the CLI:
   root built into dcap-qvl. The mirror cannot forge it, but it chooses which
   signed version the page sees: it can serve older TCB data, down to the
   policy's `tdx.min_tcb_eval_data_number`. There is no fallback.
-* **Servers before release 2026.11.3 cannot be verified**: their attestation
-  endpoint sends no `Access-Control-Allow-Origin`. (No release was
-  published under the number 2026.11.3; of the published releases,
-  2026.11.4 is the first whose endpoint sends the header.) The page says so
+* **Servers before release 2026.11.4 cannot be verified**: their attestation
+  endpoint sends no `Access-Control-Allow-Origin` (2026.11.4 is the first
+  published release whose endpoint sends it; no 2026.11.3 was published). The page says so
   (it distinguishes "answered but unreadable" from "unreachable" with a
   `no-cors` probe).
 * **The mock platform is always refused.**
