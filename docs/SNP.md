@@ -173,7 +173,10 @@ of trusting Microsoft's UVM.
    off in both the guest policy and the platform unless `allow_smt`;
    `ALIAS_CHECK_COMPLETE` unless `require_alias_check = false`; reported,
    committed **and** launch TCB at or above `min_tcb`; a TCB that carries
-   an FMC SVN fails unless `min_tcb.fmc` is set; a TCB without bootloader
+   an FMC SVN fails unless `min_tcb.fmc` is set, and with `min_tcb.fmc`
+   set a TCB without one fails; the VCEK's FMC extension must equal the
+   reported FMC SVN (absent on both sides before Turin); a TCB component
+   missing on either side is a mismatch; a TCB without bootloader
    or microcode SVN fails; `ID_KEY_DIGEST` / `AUTHOR_KEY_DIGEST` equal the
    policy if pinned.
 2. **report_data**: `REPORT_DATA` = SHA-512(tag ‖ our nonce ‖ our TLS SPKI).

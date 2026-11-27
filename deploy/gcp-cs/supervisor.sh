@@ -44,11 +44,13 @@ env -i PATH="$PATH" HOME=/root \
 
 # --- Attestation sidecar: asks the launcher for a Google-signed token whose
 # eat_nonce binds the verifier's nonce and the SPKI of Caddy's certificate.
-# Rate kept under Google Cloud Attestation's 5 requests/second quota.
+# Rates kept under Google Cloud Attestation's 5 requests/second quota: 2 per
+# client address, 4 for all clients together.
 env -i PATH="$PATH" \
   ATTEST_PLATFORM=gcp-cs \
   ATTEST_LISTEN=127.0.0.1:8081 \
   ATTEST_RATE_PER_SEC=2 \
+  ATTEST_GLOBAL_RATE_PER_SEC=4 \
   ATTEST_CERT_PATH="/caddy-data/caddy/certificates/${ACME_HOST}-directory/${DOMAIN}/${DOMAIN}.crt" \
   attest-sidecar &
 

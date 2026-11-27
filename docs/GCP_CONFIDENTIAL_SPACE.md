@@ -299,7 +299,8 @@ Consequences, stated plainly:
 7. **Availability**: the attestation endpoint depends on Google Cloud
    Attestation being reachable and on a quota of 5 tokens per second per
    project and region, which a client can exhaust. The sidecar caps itself
-   at 2 per second.
+   at 2 per second and client address and 4 per second in total
+   (`ATTEST_RATE_PER_SEC`, `ATTEST_GLOBAL_RATE_PER_SEC` in `supervisor.sh`).
 
 ## 6. What is implemented
 
@@ -315,6 +316,10 @@ Verifier properties: `alg` must be `RS256` before any key is looked at; the
 key comes only from the injected key set, selected by `kid`, and must be an
 RSA signing key of at least 2048 bits; `iss`, `aud`, `exp`, `nbf`, `iat` are
 mandatory (60 s leeway); there is no CLI option to change the key source.
+Claim values are chosen by whoever launched the VM; like every other
+server-controlled string they reach check details, notes and the `observed`
+block only through the report sanitiser (single line, control and bidi
+characters escaped).
 TDX, SEV-SNP and mock behaviour are unchanged: the gcp-cs branch returns
 before the compose and event-log checks, and reports these checks instead:
 
@@ -322,7 +327,7 @@ before the compose and event-log checks, and reports these checks instead:
 ✓ Hardware evidence signature, TCB, debug off: Google Cloud Attestation token: RS256 signature valid under Google key …
 ✓ report_data matches nonce + TLS key
 ✓ Firmware / OS measurements: Google attests: production Confidential Space image … on GCP_INTEL_TDX …
-✓ Measured config is self-contained: restart policy Always, no command or environment overrides
+✓ Measured config: known pitfalls absent: restart policy Always, no command or environment overrides
 ✓ Images pinned and allowlisted: workload image digest sha256:… equals release …
 ```
 

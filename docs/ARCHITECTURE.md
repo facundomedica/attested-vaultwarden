@@ -167,13 +167,18 @@ Platform behind `QuoteProvider`:
 
 * `Dstack`: guest agent v0 `GetQuote` (`report_data` passed raw, ≤ 64 bytes,
   no hashing by the agent) or v1 `Attest` (MessagePack). See DECISIONS D-004.
-* `ConfigfsTsm`: SEV-SNP via `/sys/kernel/config/tsm/report` (stretch; implemented, **never run on SNP hardware**, see [SNP.md](SNP.md)).
+* `ConfigfsTsm`: SEV-SNP via `/sys/kernel/config/tsm/report` (stretch; verified in code, **never run on hardware**, see [SNP.md](SNP.md), D-050).
+* `GcpCs`: Google Cloud Confidential Space launcher socket; the evidence is
+  a Google-signed attestation token whose `eat_nonce` carries `report_data`
+  (implemented, **never run on GCP**; trusts Google's attestation service;
+  no persistence; see [GCP_CONFIDENTIAL_SPACE.md](GCP_CONFIDENTIAL_SPACE.md), D-051).
 * `Mock`: INSECURE, local only.
 
 ### 4.4 `verifier`
 
 Library + CLI, runs on the user's machine. Network access only to the target
-and to Intel PCS (collateral) / AMD KDS (VCEK chain). Unit tests use recorded
+and to Intel PCS (collateral) / AMD KDS (VCEK chain) / Google's JWKS URL
+(`gcp-cs` token signing keys). Unit tests use recorded
 fixtures and a pinned verification time.
 
 ## 5. What is measured and what is not (dstack)

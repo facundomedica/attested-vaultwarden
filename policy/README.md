@@ -6,7 +6,7 @@ by `common/src/policy.rs`.
 
 A policy pins:
 
-* the platform (`tdx`, `sev-snp`);
+* the platform (`tdx`, `sev-snp`, `gcp-cs`);
 * expected firmware/OS measurements (TDX: MRTD, RTMR0-2; SNP: launch
   measurement);
 * the hash of the measured compose document (TDX/dstack: `compose_hash`;
@@ -19,6 +19,13 @@ A policy pins:
 * the RTMR3 `app_id` and `key_provider`, both **mandatory** for TDX since
   D-049 (D-020: they differ between Phala Cloud and self-hosted dstack, so
   each target gets its own policy file);
+* SEV-SNP (D-050; verified in code, never run on hardware): `measurement`,
+  `min_tcb`, `compose_binding` and a non-zero `host_data` are **mandatory**;
+  `min_tcb.fmc` is needed for reports that carry an FMC SVN;
+* Confidential Space (D-051; implemented, never run on GCP; trusts Google's
+  attestation service; no persistence): `hwmodel`, `restart_policy` and
+  exactly one digest-pinned image are **mandatory**
+  ([docs/GCP_CONFIDENTIAL_SPACE.md](../docs/GCP_CONFIDENTIAL_SPACE.md));
 * optionally `mr_config_id`, `mr_owner`, `mr_owner_config` (unset: zero, or
   for MRCONFIGID a dstack config id), `public_logs`, `allowed_bind_mounts`
   and `command_override_services` (D-049).

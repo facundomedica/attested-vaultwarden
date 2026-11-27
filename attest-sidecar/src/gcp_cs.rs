@@ -17,7 +17,8 @@
 //! echoed nonces); it does not verify the signature. The verifier does.
 //!
 //! Google rate-limits token requests (5 per second per project and region
-//! at the time of writing); keep `ATTEST_RATE_PER_SEC` below that.
+//! at the time of writing); keep `ATTEST_GLOBAL_RATE_PER_SEC` (the budget
+//! for all clients together; its default of 40 is too high here) below that.
 
 use std::path::PathBuf;
 use std::time::Duration;

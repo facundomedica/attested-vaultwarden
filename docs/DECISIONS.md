@@ -889,3 +889,70 @@ not deployed, no policy yet):
   sourced; old containers with a restart policy run from daemon start
   until the script removes them; whether dstack rewrites
   `docker-compose.yaml` in its work directory on every boot.
+
+### D-050 SEV-SNP: compose bound through HOST_DATA; verified in code, never run on hardware (2026-11-27)
+
+Design and sources: [SNP.md](SNP.md).
+
+* **Binding.** `sev_snp.compose_binding = "host-data"` (the only mode, no
+  default): `HOST_DATA` = policy `host_data` = SHA-256(served app-compose),
+  with `MEASUREMENT` pinned. The host chooses `HOST_DATA`, so the binding
+  holds only because the measured guest image refuses a config whose hash
+  differs; that is a review obligation on the image the policy pins
+  (SNP.md §3.3). The image does not exist yet. `HOST_DATA` is not trusted
+  when the measurement or launch-policy check failed, and all zero fails.
+* **Mandatory pins, no opt-outs** (as D-049 for TDX): `measurement`,
+  `min_tcb`, `compose_binding`, `host_data`. Defaults are the strict ones
+  (`allowed_vmpl = [0]`, `allow_smt = false`, `require_alias_check = true`).
+* **TCB, merged with the D-049 fail-closed fixes.** The VCEK is bound to
+  the report only if every component is present on both sides and equal,
+  including the FMC extension; a component the report lacks counts as
+  below the minimum. `min_tcb` applies to the reported, committed and
+  launch TCB. FMC: D-049 refused every report with an FMC SVN because no
+  minimum could be pinned; with `min_tcb.fmc` that refusal became "fails
+  unless `min_tcb.fmc` is set and met", and a policy that sets it fails a
+  TCB that carries none.
+* Only VCEK-signed reports (no VLEK, `MASK_CHIP_KEY` clear). The VCEK comes
+  from the sidecar's certificate table or AMD KDS and is untrusted until
+  the chain and chip/TCB binding check out. No CRL check.
+* **Sidecar**: configfs-tsm only (`ATTEST_PLATFORM=sev-snp`); no
+  `/dev/sev-guest` ioctl, which would need `unsafe`. It refuses to start if
+  the app-compose does not hash to `HOST_DATA` (a guard, not the
+  enforcement point).
+* **Status.** Tested against one real AMD-signed Milan report and synthetic
+  reports signed by a test-only chain that exists only in `cfg(test)`
+  builds. Never run on SNP hardware; `policy/measure/measure-snp.sh` is
+  untested.
+
+### D-051 Google Cloud Confidential Space: implemented, never run on GCP (2026-11-27)
+
+Design and sources: [GCP_CONFIDENTIAL_SPACE.md](GCP_CONFIDENTIAL_SPACE.md).
+
+* **Evidence is Google's OIDC attestation token**, not a hardware quote.
+  `report_data` travels in two `eat_nonce` values. The verifier pins RS256,
+  issuer and audience, and takes the signing keys only from Google's JWKS
+  URL (fetched over WebPKI TLS on every run; no CLI override).
+* **Trust statement is weaker and different in kind**: Google runs the
+  host, built the guest image, verifies the evidence and signs the result.
+  A PASS holds against the workload operator and outsiders, not against
+  Google. THREAT_MODEL claims about a malicious infrastructure provider do
+  not carry over. The example policy accepts `GCP_INTEL_TDX` only.
+* **No persistence.** Confidential Space has no verifiable persistent
+  disk; KMS-released keys would be under the operator's own IAM control,
+  which a remote user cannot inspect, so they are not implemented. Every
+  restart is an empty vault: a demonstration of the binding, not a usable
+  deployment.
+* **Policy** (`[gcp_cs]`): `hwmodel`, `restart_policy` and exactly one
+  digest-pinned image are mandatory; debug image, command or environment
+  overrides, memory monitoring and `EXPERIMENTAL` images always fail.
+  `min_swversion`, `accepted_tdx_tcb_status` and `project_id` are optional;
+  an empty `accepted_tdx_tcb_status` only reports the status (the claim's
+  shape is unconfirmed until a live token is seen).
+* **Merged with D-049**: claim values reach details, notes and `observed`
+  only through the report sanitiser. The sidecar's per-client/global rate
+  limit applies; `deploy/gcp-cs/supervisor.sh` sets 2/s per client and 4/s
+  in total, under Google's quota of 5 tokens per second.
+* One image with three processes (Vaultwarden, Caddy, sidecar) under a
+  small supervisor; `deploy/gcp-cs/deploy.sh` prints commands and runs
+  nothing. Unconfirmed until a live run: socket path, nonce order, the
+  shape of the `tdx` claim, networking.
