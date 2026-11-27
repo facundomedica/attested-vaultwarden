@@ -754,3 +754,145 @@ async fn live_google_jwks() {
     assert_eq!(d["jwks_uri"], attested_vw_common::gcp_cs::JWKS_URL);
     assert_eq!(d["id_token_signing_alg_values_supported"], json!(["RS256"]));
 }
+
+// --- A real token, recorded from a live Confidential Space VM ---------------
+//
+// `testdata/gcp-cs/live-2026-11-27.document.json` is the document served by
+// https://vault.gcp.facundo.dev on 2026-11-27 (production Confidential Space
+// image 261100, c3-standard-4, Intel TDX; the VM no longer exists). Token
+// and document are public data. The token is checked against Google's real
+// key set as recorded the same day, at a pinned clock inside its one-hour
+// validity, and against the committed release policy.
+
+const LIVE_DOC: &str = include_str!("../testdata/gcp-cs/live-2026-11-27.document.json");
+const LIVE_POLICY: &str = include_str!("../../policy/2026.11.0-gcp-cs-dev.toml");
+/// `iat` of the recorded token.
+const LIVE_IAT: u64 = 1_795_775_236;
+
+fn live_inputs() -> (Nonce, SpkiSha256) {
+    let v: Value = serde_json::from_str(LIVE_DOC).unwrap();
+    (
+        v["nonce"].as_str().unwrap().parse().unwrap(),
+        v["spki_sha256"].as_str().unwrap().parse().unwrap(),
+    )
+}
+
+fn run_live(doc: &[u8], nonce: &Nonce, spki: &SpkiSha256, now: u64) -> Report {
+    let policy = Policy::from_toml(LIVE_POLICY).expect("committed policy parses");
+    let mut c = evidence::Context::mock(false);
+    c.now_secs = now;
+    c.gcp_jwks = Ok(GOOGLE_JWKS.to_owned());
+    let mut report = Report::new("https://vault.gcp.facundo.dev");
+    check_document(doc, spki, nonce, &policy, &c, &mut report);
+    report
+}
+
+#[test]
+fn recorded_live_token_passes_under_googles_keys_and_the_release_policy() {
+    let (nonce, spki) = live_inputs();
+    let r = run_live(LIVE_DOC.as_bytes(), &nonce, &spki, LIVE_IAT + 60);
+    assert!(r.passed(), "{r}");
+    let o = r.observed.gcp_cs.clone().expect("observed claims");
+    assert_eq!(o["hwmodel"], "GCP_INTEL_TDX");
+    assert_eq!(o["swversion"], json!(["261100"]));
+    assert_eq!(o["dbgstat"], "disabled-since-boot");
+    assert_eq!(o["tdx_tcb_status"], "UpToDate");
+    assert_eq!(o["restart_policy"], "Always");
+    assert_eq!(o["project_id"], "attested-vw-test-6976");
+    // Pulled by digest, so reference and policy agree: no note.
+    assert!(r.notes.is_empty(), "{:?}", r.notes);
+}
+
+/// The real claim set, as Google sends it: what is present and what is not.
+#[test]
+fn recorded_live_token_claim_shape() {
+    let v: Value = serde_json::from_str(LIVE_DOC).unwrap();
+    let token = String::from_utf8(
+        B64.decode(v["evidence"]["quote"].as_str().unwrap())
+            .unwrap(),
+    )
+    .unwrap();
+    let tok = gcp_cs::verify_token(token.as_bytes(), GOOGLE_JWKS, LIVE_IAT + 60).unwrap();
+    let payload: Value =
+        serde_json::from_slice(&B64URL.decode(token.split('.').nth(1).unwrap()).unwrap()).unwrap();
+    // `tdx` is an object; overrides are ABSENT (not null, not empty) when
+    // the operator set none; nonces come back in request order.
+    assert!(payload["tdx"].is_object());
+    assert_eq!(payload["tdx"]["gcp_attester_tcb_status"], "UpToDate");
+    let container = payload["submods"]["container"].as_object().unwrap();
+    assert!(!container.contains_key("cmd_override"));
+    assert!(!container.contains_key("env_override"));
+    assert_eq!(container["args"], json!(["/supervisor.sh"]));
+    assert_eq!(payload["exp"].as_u64().unwrap() - LIVE_IAT, 3600);
+    let (nonce, spki) = live_inputs();
+    assert_eq!(tok.report_data, report_data::compute(&nonce, &spki));
+    assert_eq!(
+        payload["eat_nonce"],
+        json!(eat_nonces(&report_data::compute(&nonce, &spki)))
+    );
+}
+
+#[test]
+fn recorded_live_token_fails_when_replayed_expired_or_altered() {
+    let (nonce, spki) = live_inputs();
+    // Replayed to a verifier that chose another nonce, or on another TLS key.
+    let r = run_live(LIVE_DOC.as_bytes(), &Nonce([7; 32]), &spki, LIVE_IAT + 60);
+    assert!(failed(&r).contains(&CheckId::Nonce), "{r}");
+    let r = run_live(
+        LIVE_DOC.as_bytes(),
+        &nonce,
+        &SpkiSha256([7; 32]),
+        LIVE_IAT + 60,
+    );
+    assert!(failed(&r).contains(&CheckId::SpkiBinding), "{r}");
+    // A relay that rewrites the document's nonce and key to the victim's
+    // still cannot change what Google signed.
+    let mut v: Value = serde_json::from_str(LIVE_DOC).unwrap();
+    v["nonce"] = json!(Nonce([7; 32]).to_hex());
+    v["spki_sha256"] = json!(SpkiSha256([8; 32]).to_hex());
+    let r = run_live(
+        v.to_string().as_bytes(),
+        &Nonce([7; 32]),
+        &SpkiSha256([8; 32]),
+        LIVE_IAT + 60,
+    );
+    assert_eq!(failed(&r), [CheckId::ReportData], "{r}");
+    // After its hour (plus leeway), and before it was issued.
+    for now in [LIVE_IAT + 3600 + 61, LIVE_IAT - 120] {
+        let r = run_live(LIVE_DOC.as_bytes(), &nonce, &spki, now);
+        assert!(failed(&r).contains(&CheckId::Evidence), "{r}");
+    }
+    // One claim changed (image digest): Google's signature no longer holds.
+    let token = String::from_utf8(
+        B64.decode(v["evidence"]["quote"].as_str().unwrap())
+            .unwrap(),
+    )
+    .unwrap();
+    let parts: Vec<&str> = token.split('.').collect();
+    let payload = String::from_utf8(B64URL.decode(parts[1]).unwrap()).unwrap();
+    let forged = payload.replace("9ac03456", "00000000");
+    assert_ne!(payload, forged);
+    let forged = format!("{}.{}.{}", parts[0], B64URL.encode(forged), parts[2]);
+    assert!(matches!(
+        gcp_cs::verify_token(forged.as_bytes(), GOOGLE_JWKS, LIVE_IAT + 60),
+        Err(gcp_cs::GcpError::Signature)
+    ));
+}
+
+/// The same workload image on the `confidential-space-debug` image family
+/// (recorded 2026-11-27 from a VM created only to inspect the launcher): a
+/// valid Google token, correct binding, correct image digest, and still a
+/// FAIL, because the operator has a root shell on that image.
+#[test]
+fn recorded_debug_image_token_fails_measurements_only() {
+    const DEBUG_DOC: &str = include_str!("../testdata/gcp-cs/live-debug-2026-11-27.document.json");
+    let v: Value = serde_json::from_str(DEBUG_DOC).unwrap();
+    let nonce: Nonce = v["nonce"].as_str().unwrap().parse().unwrap();
+    let spki: SpkiSha256 = v["spki_sha256"].as_str().unwrap().parse().unwrap();
+    let r = run_live(DEBUG_DOC.as_bytes(), &nonce, &spki, 1_795_775_581 + 60);
+    assert_eq!(failed(&r), [CheckId::Measurements], "{r}");
+    let d = detail(&r, CheckId::Measurements);
+    assert!(d.contains("dbgstat is enabled"), "{d}");
+    // The debug image carries no support attributes at all.
+    assert!(d.contains("support attributes are []"), "{d}");
+}
