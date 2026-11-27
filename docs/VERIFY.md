@@ -122,6 +122,27 @@ service does not answer web pages (it is Intel-signed and verified either
 way). Servers older than release 2026.11.3 cannot be checked from a
 browser. Details: `web/README.md`.
 
+The page handles all three platforms and fetches the vendor material at
+each run rather than carrying a copy:
+
+* **TDX**: Intel collateral from Phala's mirror, as above.
+* **Google Cloud Confidential Space**: Google's token signing keys, from
+  the one Google URL fixed in the verifier. Nothing signs that key list;
+  the page relies on the browser's TLS connection to Google, as the
+  command-line verifier relies on its own. The server being checked cannot
+  supply keys. As on the command line, no hardware quote is seen: the
+  statement is Google's ([GCP_CONFIDENTIAL_SPACE.md](GCP_CONFIDENTIAL_SPACE.md), "Trust").
+  Tested against a recorded token from a real Confidential Space VM, with
+  the keys fetched live from a browser; not against a running deployment.
+* **AMD SEV-SNP**: the VCEK certificate from the server's certificate
+  table, or from AMD's key server if the server sent none. Either way it
+  must be signed by the AMD roots built into the verifier and match the
+  report. **No SNP deployment exists**; this path has only seen synthetic
+  reports and one public AMD-signed sample ([SNP.md](SNP.md)).
+
+If the material cannot be fetched (service down, rate limit, request
+blocked), the "Hardware evidence" line fails and says why.
+
 On the demo domain `vault.facundo.dev` the page currently ends in FAIL with
 every line ✓ except the Certificate Transparency line: Cloudflare wildcard
 certificates for `*.facundo.dev`, issued before 2026-11-27, remain valid

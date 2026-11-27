@@ -17,6 +17,13 @@ pub fn verify(input_json: &str) -> String {
     crate::verify_json(input_json)
 }
 
+/// Which trust material to fetch for this attestation document (JSON
+/// `Plan`: platform, `tdx_collateral`, `gcp_jwks_url`, `snp_vcek_urls`).
+#[wasm_bindgen]
+pub fn plan(document: &str) -> String {
+    crate::plan_json(document)
+}
+
 /// Lower-cased DNS name, or `undefined` if the text is not one.
 #[wasm_bindgen]
 pub fn normalize_host(host: &str) -> Option<String> {

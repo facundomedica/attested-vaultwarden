@@ -76,7 +76,9 @@ No toolchain at hand? `web/` builds a single-file browser verifier
 WebAssembly, except that a page cannot see its own TLS certificate, so the
 per-connection key check is replaced by a Certificate Transparency check
 over every valid certificate for the name: `PASS (browser mode: CT-based
-binding)`. Weaker than the CLI; see [web/README.md](web/README.md).
+binding)`. It handles TDX, Confidential Space and SEV-SNP documents and
+fetches the vendor material (Intel collateral, Google's signing keys, the
+AMD VCEK) at each run. Weaker than the CLI; see [web/README.md](web/README.md).
 
 Recorded output from the live run on 2026-11-26
 ([demo/live/verify.expected.txt](demo/live/verify.expected.txt), long values shortened):

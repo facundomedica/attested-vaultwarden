@@ -11,11 +11,8 @@
 //! validity window; within those bounds the source is trusted for
 //! freshness. Prefer Intel PCS (the default) over third-party caches.
 
-use sev::firmware::guest::AttestationReport;
-use sev::parser::ByteParser;
-
 pub const INTEL_PCS_URL: &str = "https://api.trustedservices.intel.com";
-pub const AMD_KDS_URL: &str = "https://kdsintf.amd.com";
+pub use crate::snp::AMD_KDS_URL;
 
 /// Intel DCAP collateral for a TDX quote (PCK CRL, TCB info, QE identity).
 ///
@@ -68,28 +65,17 @@ pub async fn gcp_jwks() -> Result<String, String> {
     String::from_utf8(body.to_vec()).map_err(|_| format!("{url}: not UTF-8"))
 }
 
-/// VCEK certificate (DER) for an SNP report from AMD KDS
-/// (`/vcek/v1/{product}/{hwid}?blSPL=..&teeSPL=..&snpSPL=..&ucodeSPL=..`,
-/// AMD spec 57230). The product is not encoded in older reports, so Milan
-/// and Genoa are tried in turn. Turin (8-byte hwID, `fmcSPL`) is not yet
-/// supported. UNCONFIRMED against a live SNP deployment.
+/// VCEK certificate (DER) for an SNP report from AMD KDS: the URLs of
+/// [`crate::snp::kds_vcek_urls`], tried in turn. UNCONFIRMED against a live
+/// SNP deployment.
 pub async fn snp_vcek(kds_url: &str, report: &[u8]) -> Result<Vec<u8>, String> {
-    let r = AttestationReport::from_bytes(report).map_err(|e| format!("report: {e}"))?;
-    let t = r.reported_tcb;
-    let (Some(bl), Some(uc)) = (t.bootloader, t.microcode) else {
-        return Err("reported TCB lacks bootloader/microcode SVN (unsupported product)".into());
-    };
+    let urls = crate::snp::kds_vcek_urls(kds_url, report)?;
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
         .build()
         .map_err(|e| e.to_string())?;
-    let hwid = hex::encode(r.chip_id);
     let mut last = String::new();
-    for product in ["Milan", "Genoa"] {
-        let url = format!(
-            "{kds_url}/vcek/v1/{product}/{hwid}?blSPL={bl:02}&teeSPL={:02}&snpSPL={:02}&ucodeSPL={uc:02}",
-            t.tee, t.snp
-        );
+    for (product, url) in urls {
         match client.get(&url).send().await {
             Ok(resp) if resp.status().is_success() => {
                 return resp
