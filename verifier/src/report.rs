@@ -26,6 +26,8 @@ pub enum CheckId {
     Measurements,
     /// RTMR3 event log replays to the quoted RTMR3 (TDX).
     EventLog,
+    /// SEV-SNP: `HOST_DATA` is set and the pinned image enforces it.
+    HostData,
     /// Hash of the measured compose document equals the policy.
     ComposeHash,
     /// The measured app-compose is self-contained: no launch scripts, no
@@ -46,6 +48,7 @@ impl CheckId {
             CheckId::ReportData => "report_data matches nonce + TLS key",
             CheckId::Measurements => "Firmware / OS measurements",
             CheckId::EventLog => "Runtime event log (RTMR3 replay)",
+            CheckId::HostData => "Launch config binding (SNP HOST_DATA)",
             CheckId::ComposeHash => "Compose hash (published software)",
             CheckId::Config => "Measured config is self-contained",
             CheckId::Images => "Images pinned and allowlisted",
@@ -93,6 +96,9 @@ pub struct Observed {
     pub app_id: Option<String>,
     pub key_provider: Option<String>,
     pub images: Vec<(String, String)>,
+    /// SEV-SNP launch measurement and HOST_DATA (hex), from the report.
+    pub snp_measurement: Option<String>,
+    pub snp_host_data: Option<String>,
     /// Host-declared dstack vm_config, if the server sent it (unmeasured).
     pub vm_config: Option<serde_json::Value>,
 }

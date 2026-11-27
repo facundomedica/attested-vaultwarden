@@ -13,6 +13,7 @@ pub mod fetch;
 pub mod net;
 pub mod report;
 pub mod snp;
+pub mod snp_launch;
 pub mod tdx;
 
 use attested_vw_common::compose;
@@ -151,7 +152,14 @@ async fn verify_once(target: &str, policy: &Policy, opts: &Options) -> Report {
             Platform::Tdx => {
                 ctx.tdx_collateral = fetch::tdx_collateral(&opts.pccs_url, &quote).await
             }
-            Platform::SevSnp => ctx.snp_vcek_der = fetch::snp_vcek(&opts.kds_url, &quote).await,
+            Platform::SevSnp => {
+                // The VCEK is AMD-signed and checked offline against the report,
+                // so the sidecar's certificate table is as good a source as KDS.
+                ctx.snp_vcek_der = match evidence::snp_aux_vcek(&doc.evidence) {
+                    Some(v) => Ok(v),
+                    None => fetch::snp_vcek(&opts.kds_url, &quote).await,
+                }
+            }
             Platform::Mock => {}
         }
     }
@@ -307,38 +315,13 @@ pub fn check_document(
             Some(got_compose)
         }
         evidence::Measured::Tdx(q) => check_tdx_measurements(q, &doc, policy, report),
-        evidence::Measured::Snp(r) => {
-            match policy.sev_snp.as_ref() {
-                Some(sp) if hex_eq(&sp.measurement, &r.measurement) => report.pass(
-                    CheckId::Measurements,
-                    format!(
-                        "launch measurement {} matches release {}",
-                        hex::encode(r.measurement),
-                        policy.release
-                    ),
-                ),
-                Some(sp) => report.fail(
-                    CheckId::Measurements,
-                    format!(
-                        "launch measurement {} but policy expects {}",
-                        hex::encode(r.measurement),
-                        sp.measurement
-                    ),
-                ),
-                None => report.fail(CheckId::Measurements, "policy has no sev_snp section"),
-            }
-            report.fail(
-                CheckId::EventLog,
-                "SEV-SNP: binding the compose document to the launch measurement is not implemented yet (stretch goal)",
-            );
-            None
-        }
+        evidence::Measured::Snp(r) => snp_launch::check_binding(r, policy, report),
     };
 
     let expected_hash = match policy.platform {
         Platform::Mock => policy.mock.as_ref().map(|m| m.compose_hash.as_str()),
         Platform::Tdx => policy.tdx.as_ref().map(|t| t.compose_hash.as_str()),
-        Platform::SevSnp => None,
+        Platform::SevSnp => snp_launch::expected_compose_hash(policy),
     };
     let got_hex = hex::encode(got_compose);
     match (expected_hash, measured_compose) {
@@ -520,6 +503,8 @@ fn check_tdx_measurements(
     }
 }
 
+#[cfg(test)]
+mod snp_tests;
 #[cfg(test)]
 mod tdx_doc_tests;
 #[cfg(test)]

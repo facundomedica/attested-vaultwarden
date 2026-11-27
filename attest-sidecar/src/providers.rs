@@ -2,7 +2,8 @@
 //!
 //! * [`Mock`]: INSECURE, software only, for local development.
 //! * `Dstack`: dstack guest agent over `/var/run/dstack.sock` (M3).
-//! * `ConfigfsTsm`: Linux configfs-tsm, for plain SEV-SNP VMs (stretch).
+//! * `ConfigfsTsm` (`configfs_tsm.rs`): Linux configfs-tsm, for plain SEV-SNP
+//!   VMs. Untested on hardware.
 
 use attested_vw_common::provider::{ProviderError, QuoteProvider};
 use attested_vw_common::report_data::ReportData;

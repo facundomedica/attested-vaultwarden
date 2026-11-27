@@ -1,4 +1,5 @@
-//! AMD SEV-SNP evidence verification (stretch platform; verifier side only).
+//! AMD SEV-SNP evidence verification (stretch platform; never run against a
+//! live SNP deployment, see docs/SNP.md).
 //!
 //! * Report parsing and signatures: VirTEE `sev` (`crypto_nossl`): ARK
 //!   self-signed, ARK→ASK, ASK→VCEK, VCEK→report, against the crate's
@@ -40,6 +41,8 @@ pub enum SnpError {
     Vmpl(u32),
     #[error("reported TCB {got} is below the policy minimum {min}")]
     Tcb { got: String, min: String },
+    #[error("launch policy: {0}")]
+    Launch(String),
 }
 
 #[derive(Debug, Clone)]
@@ -48,6 +51,8 @@ pub struct VerifiedReport {
     pub measurement: [u8; 48],
     pub report_data: [u8; 64],
     pub reported_tcb: String,
+    /// The whole signature-verified report (HOST_DATA, ID key digests, ...).
+    pub report: Box<AttestationReport>,
 }
 
 const OID_BL: &str = "1.3.6.1.4.1.3704.1.3.1";
@@ -57,7 +62,7 @@ const OID_UCODE: &str = "1.3.6.1.4.1.3704.1.3.8";
 const OID_HWID: &str = "1.3.6.1.4.1.3704.1.4";
 
 type Roots = (&'static str, &'static [u8], &'static [u8]);
-const ROOTS: &[Roots] = &[
+pub(crate) const ROOTS: &[Roots] = &[
     ("Milan", builtin::milan::ARK, builtin::milan::ASK),
     ("Genoa", builtin::genoa::ARK, builtin::genoa::ASK),
     ("Turin", builtin::turin::ARK, builtin::turin::ASK),
@@ -74,6 +79,17 @@ fn check_validity(name: &'static str, der: &[u8], now: i64) -> Result<(), SnpErr
 
 fn pem_to_der(pem: &[u8]) -> Result<Vec<u8>, SnpError> {
     attested_vw_common::tls::first_cert_der_from_pem(pem).map_err(|e| SnpError::Vcek(e.to_string()))
+}
+
+/// Roots a VCEK may chain to: AMD's, as built into the `sev` crate. Test
+/// builds (and only test builds) add the synthetic chain from
+/// `testdata/sev-synthetic`, so that reports with chosen fields can be signed.
+fn roots() -> Vec<Roots> {
+    #[allow(unused_mut)]
+    let mut v = ROOTS.to_vec();
+    #[cfg(test)]
+    v.push(crate::snp_tests::SYNTHETIC_ROOT);
+    v
 }
 
 /// Integer value of a VCEK TCB extension (DER INTEGER).
@@ -113,15 +129,21 @@ fn tcb_str(bl: Option<u8>, tee: u8, snp: u8, uc: Option<u8>) -> String {
     format!("bl={} tee={tee} snp={snp} ucode={}", o(bl), o(uc))
 }
 
-/// Guest policy and privilege checks on a (signature-verified) report.
+/// Guest policy and privilege checks on a (signature-verified) report, for
+/// VMPL 0 only.
 pub fn check_guest(report: &AttestationReport) -> Result<(), SnpError> {
+    check_guest_vmpl(report, &[0])
+}
+
+/// As [`check_guest`], with the VMPLs the release policy allows.
+pub fn check_guest_vmpl(report: &AttestationReport, allowed_vmpl: &[u32]) -> Result<(), SnpError> {
     if report.policy.debug_allowed() {
         return Err(SnpError::Debug);
     }
     if report.policy.migrate_ma_allowed() {
         return Err(SnpError::MigrationAgent);
     }
-    if report.vmpl != 0 {
+    if !allowed_vmpl.contains(&report.vmpl) {
         return Err(SnpError::Vmpl(report.vmpl));
     }
     Ok(())
@@ -141,7 +163,7 @@ pub fn verify_report(
 
     // Find the product whose ARK/ASK chain signs this VCEK.
     let mut found = None;
-    for (name, ark_pem, ask_pem) in ROOTS {
+    for (name, ark_pem, ask_pem) in &roots() {
         let (Ok(ark), Ok(ask)) = (
             Certificate::from_pem(ark_pem),
             Certificate::from_pem(ask_pem),
@@ -187,7 +209,7 @@ pub fn verify_report(
         None => return Err(SnpError::VcekMismatch("VCEK has no hwID extension".into())),
     }
 
-    check_guest(&report)?;
+    check_guest_vmpl(&report, &policy.allowed_vmpl)?;
     let m = &policy.min_tcb;
     let below = rt.bootloader.is_some_and(|b| b < m.bootloader)
         || rt.tee < m.tee
@@ -201,11 +223,19 @@ pub fn verify_report(
         });
     }
 
+    // Fail-closed checks on everything else the release policy speaks about
+    // (FMC, committed/launch TCB, SMT, signing key, ID/author key digests).
+    let problems = crate::snp_launch::launch_problems(&report, policy);
+    if !problems.is_empty() {
+        return Err(SnpError::Launch(problems.join("; ")));
+    }
+
     Ok(VerifiedReport {
         product,
         measurement: report.measurement,
         report_data: report.report_data,
         reported_tcb: got,
+        report: Box::new(report),
     })
 }
 
@@ -224,14 +254,17 @@ mod tests {
     }
 
     fn policy(min: SnpMinTcb) -> SevSnpPolicy {
+        // The upstream fixture is an old Milan report: SMT on, no alias check.
         SevSnpPolicy {
-            measurement: String::new(),
-            min_tcb: min,
+            allow_smt: true,
+            require_alias_check: false,
+            ..crate::snp_tests::base_policy(min)
         }
     }
 
     fn zero_min() -> SnpMinTcb {
         SnpMinTcb {
+            fmc: None,
             bootloader: 0,
             tee: 0,
             snp: 0,
@@ -280,6 +313,7 @@ mod tests {
     #[test]
     fn tcb_below_minimum_fails() {
         let min = SnpMinTcb {
+            fmc: None,
             bootloader: 0,
             tee: 0,
             snp: 255,

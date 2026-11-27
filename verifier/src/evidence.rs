@@ -78,6 +78,12 @@ pub fn decode_quote(ev: &Evidence) -> Result<Vec<u8>, EvidenceError> {
     B64.decode(&ev.quote).map_err(|_| EvidenceError::Base64)
 }
 
+/// VCEK from the SNP certificate table in `evidence.aux`, if present.
+pub fn snp_aux_vcek(ev: &Evidence) -> Option<Vec<u8>> {
+    let table = B64.decode(ev.aux.as_deref()?).ok()?;
+    crate::snp_launch::vcek_from_cert_table(&table)
+}
+
 pub fn verify(
     platform: Platform,
     ev: &Evidence,
@@ -147,8 +153,8 @@ pub fn verify(
             Ok(Verified {
                 report_data: ReportData(v.report_data),
                 summary: format!(
-                    "AMD {} ARK→ASK→VCEK→report signatures valid, VCEK bound to TCB/chip, TCB {}, debug and migration off, VMPL 0",
-                    v.product, v.reported_tcb
+                    "AMD {} ARK→ASK→VCEK→report signatures valid, VCEK bound to TCB/chip, TCB {}, debug and migration off, VMPL {}",
+                    v.product, v.reported_tcb, v.report.vmpl
                 ),
                 measured: Measured::Snp(v),
             })
