@@ -142,26 +142,43 @@ mounts.
 Pinned `caddy@sha256:<digest>`. Caddyfile is embedded in the compose (so it
 is measured), routes `/.well-known/tee-attestation` to the sidecar and the
 rest to Vaultwarden (WebSocket upgrade passes through on the same port).
-Certificate store at `/data/caddy/certificates/<issuer>/<domain>/<domain>.crt`
-in the `caddy_data` volume; the sidecar mounts that volume read-only.
+Certificate store at `/data/caddy/certificates/<issuer>/<domain>/<domain>.crt`.
+Up to release 2026.11.2 that is inside the persistent `caddy_data` volume,
+which the sidecar mounts read-only as a whole. From the 2026.11.4 template
+(D-049) `/data/caddy/certificates` is a separate tmpfs-backed named volume
+(`caddy_certs`): certificates and private keys exist in memory only and are
+re-issued at every boot (Let's Encrypt: at most 5 identical certificates
+per week, so at most 5 cold starts per week); `caddy_data` keeps only the
+ACME account. Reason: THREAT_MODEL §1, precondition of C3/C4.
 
 ### 4.3 `attest` (sidecar)
 
 Rust, minimal dependencies, single route, `#![forbid(unsafe_code)]`. Mounts:
-`caddy_data` read-only, `/var/run/dstack.sock`. Rate limit and request size
-limit in front. Never reads `/data` of Vaultwarden, holds no secret.
+`/var/run/dstack.sock` and Caddy's certificates read-only (the whole
+`caddy_data` up to 2026.11.2; only the `caddy_certs` tmpfs from 2026.11.4).
+Runs as uid 0 with every capability dropped, read-only root filesystem and
+`no-new-privileges`: Caddy writes its certificate files `0600 root`, so no
+other uid can read the leaf. Request size limit and a two-level rate limit
+(per client address as reported by Caddy, and global). Never reads `/data`
+of Vaultwarden. It can read the TLS private key file (same directory as the
+certificate) but never opens it.
 
 Platform behind `QuoteProvider`:
 
 * `Dstack`: guest agent v0 `GetQuote` (`report_data` passed raw, ≤ 64 bytes,
   no hashing by the agent) or v1 `Attest` (MessagePack). See DECISIONS D-004.
-* `ConfigfsTsm`: SEV-SNP via `/sys/kernel/config/tsm/report` (stretch, **not implemented**).
+* `ConfigfsTsm`: SEV-SNP via `/sys/kernel/config/tsm/report` (stretch; verified in code, **never run on hardware**, see [SNP.md](SNP.md), D-050).
+* `GcpCs`: Google Cloud Confidential Space launcher socket; the evidence is
+  a Google-signed attestation token whose `eat_nonce` carries `report_data`
+  (implemented, **never run on GCP**; trusts Google's attestation service;
+  no persistence; see [GCP_CONFIDENTIAL_SPACE.md](GCP_CONFIDENTIAL_SPACE.md), D-051).
 * `Mock`: INSECURE, local only.
 
 ### 4.4 `verifier`
 
 Library + CLI, runs on the user's machine. Network access only to the target
-and to Intel PCS (collateral) / AMD KDS (VCEK chain). Unit tests use recorded
+and to Intel PCS (collateral) / AMD KDS (VCEK chain) / Google's JWKS URL
+(`gcp-cs` token signing keys). Unit tests use recorded
 fixtures and a pinned verification time.
 
 ## 5. What is measured and what is not (dstack)

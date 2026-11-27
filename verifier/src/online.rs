@@ -20,8 +20,13 @@ pub struct Options {
     /// Trust anchors for the TLS connection.
     pub roots: Roots,
     /// Where to fetch Intel DCAP collateral (Intel PCS by default). The
-    /// collateral is Intel-signed, so the source affects availability only.
+    /// collateral is Intel-signed, so the source cannot forge it, but it
+    /// picks which signed version we see: it can roll the TCB verdict back
+    /// to an older evaluation data set unless the policy's
+    /// `tdx.min_tcb_eval_data_number` forbids it (see [`fetch`]).
     pub pccs_url: String,
+    /// Ask for Intel's `update=early` TCB evaluation data set.
+    pub early_tcb: bool,
     /// AMD Key Distribution Service base URL (VCEK certificates).
     pub kds_url: String,
     /// Ask Docker Hub which tags currently point at each pinned digest and
@@ -40,9 +45,33 @@ impl Options {
             allow_insecure_mock: false,
             roots,
             pccs_url: fetch::INTEL_PCS_URL.to_owned(),
+            early_tcb: false,
             kds_url: fetch::AMD_KDS_URL.to_owned(),
             registry_lookup: true,
         }
+    }
+}
+
+/// How long to wait before the single retry after an HTTP 429 from the
+/// attestation endpoint (its rate limit is shared by all clients).
+const RATE_LIMIT_BACKOFF: std::time::Duration = std::time::Duration::from_millis(1500);
+
+/// One attempt, repeated once after a pause if the endpoint answered 429.
+/// The retry uses a new connection and the same nonce (still ours, still
+/// unused); the TLS key is re-read from the new handshake.
+async fn fetch_with_retry(
+    t: &net::Target,
+    roots: &Roots,
+    nonce: &Nonce,
+    report: &mut Report,
+) -> Result<net::Fetched, net::NetError> {
+    match net::fetch(t, roots, nonce).await {
+        Err(net::NetError::Status(429, _)) => {
+            report.note("attestation endpoint was rate limited (HTTP 429); retried once");
+            tokio::time::sleep(RATE_LIMIT_BACKOFF).await;
+            net::fetch(t, roots, nonce).await
+        }
+        other => other,
     }
 }
 
@@ -81,18 +110,16 @@ pub async fn verify(target: &str, policy: &Policy, opts: &Options) -> Report {
         return first;
     }
     let mut second = verify_once(target, policy, opts).await;
-    second.notes.push(
-        "first attempt failed on the TLS key binding; retried once on a new connection".into(),
-    );
+    second.note("first attempt failed on the TLS key binding; retried once on a new connection");
     second
 }
 
 async fn verify_once(target: &str, policy: &Policy, opts: &Options) -> Report {
     let mut report = Report::new(target);
     report.policy_release = Some(policy.release.clone());
-    report.notes.push(match &opts.roots {
-        Roots::WebPki => "TLS trust roots: Mozilla WebPKI (webpki-roots)".into(),
-        Roots::Custom(_) => "TLS trust roots: custom CA file only (NOT WebPKI)".into(),
+    report.note(match &opts.roots {
+        Roots::WebPki => "TLS trust roots: Mozilla WebPKI (webpki-roots)",
+        Roots::Custom(_) => "TLS trust roots: custom CA file only (NOT WebPKI)",
     });
 
     let t = match net::Target::parse(target) {
@@ -109,7 +136,7 @@ async fn verify_once(target: &str, policy: &Policy, opts: &Options) -> Report {
             return report;
         }
     };
-    let fetched = match net::fetch(&t, &opts.roots, &nonce).await {
+    let fetched = match fetch_with_retry(&t, &opts.roots, &nonce, &mut report).await {
         Ok(f) => f,
         Err(e @ (net::NetError::Status(..) | net::NetError::Http(_))) => {
             report.pass(CheckId::Tls, "handshake ok");
@@ -145,9 +172,24 @@ async fn verify_once(target: &str, policy: &Policy, opts: &Options) -> Report {
     {
         match doc.platform {
             Platform::Tdx => {
-                ctx.tdx_collateral = fetch::tdx_collateral(&opts.pccs_url, &quote).await
+                if opts.pccs_url != fetch::INTEL_PCS_URL {
+                    report.note(format!(
+                        "TDX collateral from {} (not Intel PCS): it can serve older Intel-signed TCB data, down to the policy's minimum evaluation data number",
+                        opts.pccs_url
+                    ));
+                }
+                ctx.tdx_collateral =
+                    fetch::tdx_collateral(&opts.pccs_url, &quote, opts.early_tcb).await
             }
-            Platform::SevSnp => ctx.snp_vcek_der = fetch::snp_vcek(&opts.kds_url, &quote).await,
+            Platform::SevSnp => {
+                // The VCEK is AMD-signed and checked offline against the report,
+                // so the sidecar's certificate table is as good a source as KDS.
+                ctx.snp_vcek_der = match evidence::snp_aux_vcek(&doc.evidence) {
+                    Some(v) => Ok(v),
+                    None => fetch::snp_vcek(&opts.kds_url, &quote).await,
+                }
+            }
+            Platform::GcpCs => ctx.gcp_jwks = fetch::gcp_jwks().await,
             Platform::Mock => {}
         }
     }

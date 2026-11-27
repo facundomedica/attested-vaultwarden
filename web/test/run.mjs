@@ -101,6 +101,9 @@ allow_smt = true
 allow_dynamic_platform = true
 allow_cached_keys = true
 require_storage_encrypted = false
+app_id = "60618cd0c23d15d921b788b8fc3a0d024ac72295"
+key_provider = '{"name":"none","id":""}'
+min_tcb_eval_data_number = 20
 [[images]]
 service = "vaultwarden"
 image = "${image}"
@@ -207,7 +210,7 @@ await test("recorded TDX evidence through the page's whole pipeline", async () =
     "-ct_binding", // no key was attested, so nothing can match
   ], output.text);
   assert.equal(output.passed, false);
-  assert.match(output.text, /TCB UpToDate, TD debug off/);
+  assert.match(output.text, /TCB UpToDate.*TD debug off/);
   assert.match(output.text, /9 RTMR3 events replay to the quoted RTMR3/);
   assert.doesNotMatch(output.text, /TLS key bound to attestation:/);
   assert.match(output.text, /browser mode: a web page cannot read the TLS certificate/);
@@ -269,15 +272,21 @@ await test("not a domain name", async () => {
   assert.match(output.error, /not a domain name/);
 });
 
-await test("bundle: every policy parses in the verifier", async () => {
-  const names = Object.keys(bundle.policies);
+await test("bundle: policies load in the verifier, or are refused with a reason", async () => {
+  const names = Object.keys(bundle.policies).sort();
   assert(names.length > 0);
-  for (const name of names) {
-    const out = JSON.parse(
+  const load = (name) =>
+    JSON.parse(
       wasm.verify(JSON.stringify({ host: HOST, nonce: "0".repeat(64), policy_toml: bundle.policies[name], now_secs: 1, fetch_error: "x" })),
     );
-    assert.equal(out.report.policy_release, name, `policy ${name}`);
+  for (const name of names) {
+    const out = load(name);
+    // Old policy formats (before app_id became mandatory) are refused.
+    if (out.report.policy_release === null) assert.match(out.text, /cannot load the bundled policy/, name);
+    else assert.equal(out.report.policy_release, name);
   }
+  // The newest one, which the page selects by default, must load.
+  assert.equal(load(names[names.length - 1]).report.policy_release, names[names.length - 1]);
 });
 
 // Recorded live runs replay to exactly the recorded report.

@@ -34,7 +34,12 @@ struct Args {
     #[arg(long)]
     ca: Option<PathBuf>,
     /// Intel PCS/PCCS base URL for TDX collateral. Collateral is Intel-signed,
-    /// so a cache such as https://pccs.phala.network affects availability only.
+    /// so a cache such as https://pccs.phala.network cannot forge it, but it
+    /// chooses which signed version you get: a stale or malicious cache can
+    /// serve an older TCB evaluation data set (a platform that needs a
+    /// security update still shows UpToDate). The policy's
+    /// tdx.min_tcb_eval_data_number bounds how old; the default, Intel's own
+    /// service, is the safer source.
     #[arg(long, default_value = attested_vw_verifier::fetch::INTEL_PCS_URL)]
     pccs_url: String,
     /// Do not ask Docker Hub which tags currently point at the pinned image
@@ -42,6 +47,12 @@ struct Args {
     /// the exit code) and takes at most 5 seconds.
     #[arg(long)]
     no_registry_lookup: bool,
+    /// Judge the platform against Intel's newest published TCB evaluation
+    /// data set (`update=early`) instead of the one Intel currently enforces
+    /// (`update=standard`). Stricter; may fail on platforms that are still
+    /// within Intel's update window.
+    #[arg(long)]
+    early_tcb: bool,
 }
 
 fn load(args: &Args) -> Result<(Policy, Roots), String> {
@@ -84,6 +95,7 @@ fn main() -> ExitCode {
     opts.allow_insecure_mock = args.allow_insecure_mock;
     opts.pccs_url = args.pccs_url.clone();
     opts.registry_lookup = !args.no_registry_lookup;
+    opts.early_tcb = args.early_tcb;
     let report = rt.block_on(verify(&args.url, &policy, &opts));
     if args.json {
         match serde_json::to_string_pretty(&report) {

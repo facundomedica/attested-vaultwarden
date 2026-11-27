@@ -4,7 +4,9 @@
 # sidecar image digest and wraps the result into app-compose.json. dstack
 # measures SHA-256(app-compose.json) into RTMR3 (`compose-hash`), so EVERY
 # behaviour-affecting setting is literal here. Encrypted env values are not
-# measured and are not used (allowed_envs = []).
+# measured: the compose uses none (no variable interpolation). The only one a
+# release may allow is GHCR_READ_TOKEN, read by the pre-launch script of the
+# private-image variant (allowed_envs = ["GHCR_READ_TOKEN"], docs/PHALA.md 1b).
 #
 # TLS: the CVM's port 443 is exposed by the host as raw TCP (vmm `--port
 # tcp:0.0.0.0:443:443`, or dstack-gateway TLS passthrough). Caddy generates
@@ -32,6 +34,15 @@ services:
       LOG_LEVEL: "warn"
       # ADMIN_TOKEN deliberately unset: admin panel disabled (DECISIONS D-008).
       # SMTP not configured: invitations are accepted via the invite link.
+      # Vaultwarden loads data/config.json at start and lets it OVERRIDE the
+      # environment above (checked on 1.37.5). /data is persistent state that
+      # the verifier cannot see, so a file planted there would change the
+      # server's behaviour without changing any measurement. The config file
+      # therefore lives on a tmpfs that is empty at every start; with the
+      # admin panel disabled nothing ever writes it.
+      CONFIG_FILE: "/run/vaultwarden/config.json"
+    tmpfs:
+      - /run/vaultwarden
     volumes:
       - vw_data:/data
 
@@ -41,15 +52,33 @@ services:
     ports:
       - "443:443"
     configs:
-      - source: caddyfile
+      # The config name carries a revision that render.sh derives from this
+      # whole file: docker compose keeps a running container when only the
+      # inline content of a config changes, so without it an update would
+      # measure the new Caddyfile and keep serving the old one (D-049).
+      - source: caddyfile___COMPOSE_REV__
         target: /etc/caddy/Caddyfile
     volumes:
+      # caddy_data (persistent) keeps the ACME account, which a CAA
+      # accounturi record can pin. Certificates and their PRIVATE KEYS go to
+      # caddy_certs, a tmpfs: they exist in memory only and are gone when the
+      # CVM stops. Whatever ran in this CVM before (the disk key depends on
+      # the app id and the KMS, not on the compose) cannot have left a TLS
+      # key behind, and nothing that runs later finds this one on disk.
+      # Cost: a new certificate at every boot. Let's Encrypt allows 5
+      # identical certificates per week, so more than 5 cold starts in a
+      # week leave the service without a certificate until the limit refills.
       - caddy_data:/data
+      - caddy_certs:/data/caddy/certificates
       - caddy_config:/config
 
   attest:
     image: __ATTEST_IMAGE__
     restart: unless-stopped
+    # Root, with every capability dropped: Caddy writes its certificate
+    # files 0600 root (directories 0700), so only uid 0 can read the leaf,
+    # and the guest agent socket is root-only as well. The sidecar sees the
+    # certificates tmpfs (read-only) and nothing else of Caddy's storage.
     user: "0:0"
     cap_drop: [ALL]
     read_only: true
@@ -57,14 +86,14 @@ services:
     environment:
       ATTEST_PLATFORM: "dstack"
       ATTEST_LISTEN: "0.0.0.0:8081"
-      ATTEST_CERT_PATH: "/caddy/caddy/certificates/acme-v02.api.letsencrypt.org-directory/__DOMAIN__/__DOMAIN__.crt"
+      ATTEST_CERT_PATH: "/certs/acme-v02.api.letsencrypt.org-directory/__DOMAIN__/__DOMAIN__.crt"
       ATTEST_DSTACK_SOCKET: "/var/run/dstack.sock"
     volumes:
-      - caddy_data:/caddy:ro
+      - caddy_certs:/certs:ro
       - /var/run/dstack.sock:/var/run/dstack.sock
 
 configs:
-  caddyfile:
+  caddyfile___COMPOSE_REV__:
     content: |
       {
         admin off
@@ -79,6 +108,9 @@ configs:
           }
         }
         handle /.well-known/tee-attestation {
+          # Public evidence, no credentials: let a browser verifier page
+          # on another origin fetch it.
+          header Access-Control-Allow-Origin "*"
           reverse_proxy attest:8081
         }
         handle {
@@ -90,3 +122,11 @@ volumes:
   vw_data:
   caddy_data:
   caddy_config:
+  # In-memory only (see the proxy service). Mounted by proxy (rw) and attest
+  # (ro); it lives as long as one of them runs.
+  caddy_certs:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "size=8m,mode=0700,nosuid,nodev,noexec"

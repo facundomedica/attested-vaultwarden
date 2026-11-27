@@ -1,4 +1,5 @@
-//! AMD SEV-SNP evidence verification (stretch platform; verifier side only).
+//! AMD SEV-SNP evidence verification (stretch platform; never run against a
+//! live SNP deployment, see docs/SNP.md).
 //!
 //! * Report parsing and signatures: VirTEE `sev` (`crypto_nossl`): ARK
 //!   self-signed, ARK→ASK, ASK→VCEK, VCEK→report, against the crate's
@@ -40,6 +41,8 @@ pub enum SnpError {
     Vmpl(u32),
     #[error("reported TCB {got} is below the policy minimum {min}")]
     Tcb { got: String, min: String },
+    #[error("launch policy: {0}")]
+    Launch(String),
 }
 
 #[derive(Debug, Clone)]
@@ -48,16 +51,19 @@ pub struct VerifiedReport {
     pub measurement: [u8; 48],
     pub report_data: [u8; 64],
     pub reported_tcb: String,
+    /// The whole signature-verified report (HOST_DATA, ID key digests, ...).
+    pub report: Box<AttestationReport>,
 }
 
 const OID_BL: &str = "1.3.6.1.4.1.3704.1.3.1";
 const OID_TEE: &str = "1.3.6.1.4.1.3704.1.3.2";
 const OID_SNP: &str = "1.3.6.1.4.1.3704.1.3.3";
 const OID_UCODE: &str = "1.3.6.1.4.1.3704.1.3.8";
+const OID_FMC: &str = "1.3.6.1.4.1.3704.1.3.9";
 const OID_HWID: &str = "1.3.6.1.4.1.3704.1.4";
 
 type Roots = (&'static str, &'static [u8], &'static [u8]);
-const ROOTS: &[Roots] = &[
+pub(crate) const ROOTS: &[Roots] = &[
     ("Milan", builtin::milan::ARK, builtin::milan::ASK),
     ("Genoa", builtin::genoa::ARK, builtin::genoa::ASK),
     ("Turin", builtin::turin::ARK, builtin::turin::ASK),
@@ -74,6 +80,17 @@ fn check_validity(name: &'static str, der: &[u8], now: i64) -> Result<(), SnpErr
 
 fn pem_to_der(pem: &[u8]) -> Result<Vec<u8>, SnpError> {
     attested_vw_common::tls::first_cert_der_from_pem(pem).map_err(|e| SnpError::Vcek(e.to_string()))
+}
+
+/// Roots a VCEK may chain to: AMD's, as built into the `sev` crate. Test
+/// builds (and only test builds) add the synthetic chain from
+/// `testdata/sev-synthetic`, so that reports with chosen fields can be signed.
+fn roots() -> Vec<Roots> {
+    #[allow(unused_mut)]
+    let mut v = ROOTS.to_vec();
+    #[cfg(test)]
+    v.push(crate::snp_tests::SYNTHETIC_ROOT);
+    v
 }
 
 /// Integer value of a VCEK TCB extension (DER INTEGER).
@@ -113,15 +130,21 @@ fn tcb_str(bl: Option<u8>, tee: u8, snp: u8, uc: Option<u8>) -> String {
     format!("bl={} tee={tee} snp={snp} ucode={}", o(bl), o(uc))
 }
 
-/// Guest policy and privilege checks on a (signature-verified) report.
+/// Guest policy and privilege checks on a (signature-verified) report, for
+/// VMPL 0 only.
 pub fn check_guest(report: &AttestationReport) -> Result<(), SnpError> {
+    check_guest_vmpl(report, &[0])
+}
+
+/// As [`check_guest`], with the VMPLs the release policy allows.
+pub fn check_guest_vmpl(report: &AttestationReport, allowed_vmpl: &[u32]) -> Result<(), SnpError> {
     if report.policy.debug_allowed() {
         return Err(SnpError::Debug);
     }
     if report.policy.migrate_ma_allowed() {
         return Err(SnpError::MigrationAgent);
     }
-    if report.vmpl != 0 {
+    if !allowed_vmpl.contains(&report.vmpl) {
         return Err(SnpError::Vmpl(report.vmpl));
     }
     Ok(())
@@ -141,7 +164,7 @@ pub fn verify_report(
 
     // Find the product whose ARK/ASK chain signs this VCEK.
     let mut found = None;
-    for (name, ark_pem, ask_pem) in ROOTS {
+    for (name, ark_pem, ask_pem) in &roots() {
         let (Ok(ark), Ok(ask)) = (
             Certificate::from_pem(ark_pem),
             Certificate::from_pem(ask_pem),
@@ -176,23 +199,30 @@ pub fn verify_report(
         ext_u8(&vc, OID_UCODE)?,
     );
     let rep_tcb = (rt.bootloader, Some(rt.tee), Some(rt.snp), rt.microcode);
-    if cert_tcb != rep_tcb {
+    // Fail closed: a component missing on either side is a mismatch, never
+    // "None == None". The FMC SVN (Turin and later) is bound the same way
+    // when either side carries it.
+    let cert_fmc = ext_u8(&vc, OID_FMC)?;
+    if !tcb_bound(cert_tcb, rep_tcb, cert_fmc, rt.fmc) {
         return Err(SnpError::VcekMismatch(format!(
-            "VCEK is for TCB {cert_tcb:?}, report says {rep_tcb:?}"
+            "VCEK is for TCB {cert_tcb:?} fmc {cert_fmc:?}, report says {rep_tcb:?} fmc {:?} (every component must be present and equal)",
+            rt.fmc
         )));
     }
+    // A report that carries an FMC SVN is judged against `min_tcb.fmc` in
+    // `snp_launch::launch_problems` below (reported, committed and launch
+    // TCB): it fails if the policy pins none, and a policy that pins one
+    // fails a report without it.
     match ext_hwid(&vc)? {
         Some(h) if h == report.chip_id => {}
         Some(_) => return Err(SnpError::VcekMismatch("hwID differs from chip_id".into())),
         None => return Err(SnpError::VcekMismatch("VCEK has no hwID extension".into())),
     }
 
-    check_guest(&report)?;
+    check_guest_vmpl(&report, &policy.allowed_vmpl)?;
     let m = &policy.min_tcb;
-    let below = rt.bootloader.is_some_and(|b| b < m.bootloader)
-        || rt.tee < m.tee
-        || rt.snp < m.snp
-        || rt.microcode.is_some_and(|u| u < m.microcode);
+    // A component the report does not carry counts as below the minimum.
+    let below = below_min_tcb(rt.bootloader, rt.tee, rt.snp, rt.microcode, m);
     let got = tcb_str(rt.bootloader, rt.tee, rt.snp, rt.microcode);
     if below {
         return Err(SnpError::Tcb {
@@ -201,12 +231,97 @@ pub fn verify_report(
         });
     }
 
+    // Fail-closed checks on everything else the release policy speaks about
+    // (FMC, committed/launch TCB, SMT, signing key, ID/author key digests).
+    let problems = crate::snp_launch::launch_problems(&report, policy);
+    if !problems.is_empty() {
+        return Err(SnpError::Launch(problems.join("; ")));
+    }
+
     Ok(VerifiedReport {
         product,
         measurement: report.measurement,
         report_data: report.report_data,
         reported_tcb: got,
+        report: Box::new(report),
     })
+}
+
+type TcbParts = (Option<u8>, Option<u8>, Option<u8>, Option<u8>);
+
+/// The VCEK is bound to the report's TCB only if every component
+/// (bootloader, TEE, SNP, microcode) is present on both sides and equal, and
+/// the FMC SVN is equal too (absent on both sides before Turin).
+fn tcb_bound(
+    cert: TcbParts,
+    report: TcbParts,
+    cert_fmc: Option<u8>,
+    report_fmc: Option<u8>,
+) -> bool {
+    let complete = |t: &TcbParts| t.0.is_some() && t.1.is_some() && t.2.is_some() && t.3.is_some();
+    complete(&cert) && complete(&report) && cert == report && cert_fmc == report_fmc
+}
+
+/// A component the report does not carry counts as below the minimum.
+fn below_min_tcb(
+    bootloader: Option<u8>,
+    tee: u8,
+    snp: u8,
+    microcode: Option<u8>,
+    min: &attested_vw_common::policy::SnpMinTcb,
+) -> bool {
+    bootloader.is_none_or(|b| b < min.bootloader)
+        || tee < min.tee
+        || snp < min.snp
+        || microcode.is_none_or(|u| u < min.microcode)
+}
+
+#[cfg(test)]
+mod fail_closed_tests {
+    use super::{below_min_tcb, tcb_bound};
+    use attested_vw_common::policy::SnpMinTcb;
+
+    #[test]
+    fn missing_tcb_component_is_a_mismatch() {
+        let full = (Some(3), Some(0), Some(8), Some(115));
+        assert!(tcb_bound(full, full, None, None));
+        assert!(tcb_bound(full, full, Some(1), Some(1)));
+        // Review finding: None == None used to count as a match.
+        let no_bl = (None, Some(0), Some(8), Some(115));
+        let no_uc = (Some(3), Some(0), Some(8), None);
+        assert!(!tcb_bound(no_bl, no_bl, None, None));
+        assert!(!tcb_bound(no_uc, no_uc, None, None));
+        assert!(!tcb_bound(full, no_uc, None, None));
+        assert!(!tcb_bound(
+            full,
+            (Some(3), Some(0), Some(8), Some(116)),
+            None,
+            None
+        ));
+        // The FMC SVN was never compared.
+        assert!(!tcb_bound(full, full, Some(1), None));
+        assert!(!tcb_bound(full, full, None, Some(1)));
+        assert!(!tcb_bound(full, full, Some(1), Some(2)));
+    }
+
+    #[test]
+    fn missing_tcb_component_is_below_minimum() {
+        let min = SnpMinTcb {
+            fmc: None,
+            bootloader: 3,
+            tee: 0,
+            snp: 8,
+            microcode: 115,
+        };
+        assert!(!below_min_tcb(Some(3), 0, 8, Some(115), &min));
+        assert!(!below_min_tcb(Some(4), 1, 9, Some(200), &min));
+        assert!(below_min_tcb(Some(2), 0, 8, Some(115), &min));
+        assert!(below_min_tcb(Some(3), 0, 7, Some(115), &min));
+        assert!(below_min_tcb(Some(3), 0, 8, Some(114), &min));
+        // Review finding: is_some_and skipped the comparison when None.
+        assert!(below_min_tcb(None, 0, 8, Some(115), &min));
+        assert!(below_min_tcb(Some(3), 0, 8, None, &min));
+    }
 }
 
 #[cfg(test)]
@@ -224,14 +339,17 @@ mod tests {
     }
 
     fn policy(min: SnpMinTcb) -> SevSnpPolicy {
+        // The upstream fixture is an old Milan report: SMT on, no alias check.
         SevSnpPolicy {
-            measurement: String::new(),
-            min_tcb: min,
+            allow_smt: true,
+            require_alias_check: false,
+            ..crate::snp_tests::base_policy(min)
         }
     }
 
     fn zero_min() -> SnpMinTcb {
         SnpMinTcb {
+            fmc: None,
             bootloader: 0,
             tee: 0,
             snp: 0,
@@ -280,6 +398,7 @@ mod tests {
     #[test]
     fn tcb_below_minimum_fails() {
         let min = SnpMinTcb {
+            fmc: None,
             bootloader: 0,
             tee: 0,
             snp: 255,

@@ -120,9 +120,7 @@ fn run(input: &Input, report: &mut Report) -> Vec<ct::CtCert> {
         }
     };
     let Some(body) = input.body.as_deref() else {
-        report
-            .notes
-            .push(attested_vw_verifier::BROWSER_MODE_NOTE.to_owned());
+        report.note(attested_vw_verifier::BROWSER_MODE_NOTE);
         report.fail(
             CheckId::Fetch,
             input
@@ -146,6 +144,9 @@ fn run(input: &Input, report: &mut Report) -> Vec<ct::CtCert> {
         now_secs: input.now_secs,
         tdx_collateral,
         snp_vcek_der: Err("SEV-SNP is not supported in the browser verifier".to_owned()),
+        gcp_jwks: Err(
+            "Confidential Space (gcp-cs) is not supported in the browser verifier yet".to_owned(),
+        ),
     };
     check_document_browser(body.as_bytes(), &nonce, &policy, &ctx, report);
 

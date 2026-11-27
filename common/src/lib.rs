@@ -8,12 +8,15 @@
 //!   TLS leaf SPKI hash into the 64-byte TEE `report_data` field.
 //! * [`schema`]: the JSON document served at `/.well-known/tee-attestation`.
 //! * [`policy`]: the per-release policy file format (`policy/<release>.toml`).
+//! * [`gcp_cs`]: Google Cloud Confidential Space constants, nonce encoding
+//!   and policy section.
 //! * [`provider`]: the `QuoteProvider` trait implemented by the sidecar.
 
 #![forbid(unsafe_code)]
 #![cfg_attr(test, allow(clippy::panic, clippy::unwrap_used, clippy::expect_used))]
 
 pub mod compose;
+pub mod gcp_cs;
 pub mod policy;
 pub mod provider;
 pub mod report_data;

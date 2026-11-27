@@ -123,10 +123,16 @@ Step-by-step for non-experts: [docs/VERIFY.md](docs/VERIFY.md).
   verifier can rebuild it reproducibly from source, at the commit named in
   the policy header (not the release tag), and compare digests
   (`attest-sidecar/reproducible-build.sh <commit>`), but cannot pull it.
-* **SEV-SNP is verifier-only.** The verifier checks SNP reports (signature
-  chain, TCB, guest policy), but there is no SNP deployment, no SNP
-  sidecar provider, and an SNP target always FAILs the compose binding
-  check, which is not implemented.
+* **SEV-SNP is verified in code, never run on hardware.** The verifier binds the compose
+  document through `HOST_DATA` and a pinned launch measurement, and the
+  sidecar has a configfs-tsm provider, but both are tested only with
+  synthetic reports and a fake configfs directory; there is no SNP guest
+  image and no SNP deployment ([docs/SNP.md](docs/SNP.md)).
+* **Google Cloud Confidential Space is implemented, never run on GCP.** It
+  trusts Google's attestation service (the verifier checks a Google-signed
+  token, not a hardware quote, and Google is also the host) and has no
+  persistence: every restart is an empty vault
+  ([docs/GCP_CONFIDENTIAL_SPACE.md](docs/GCP_CONFIDENTIAL_SPACE.md)).
 * **Development releases.** All published policies accept the PCK flags
   SMT, dynamic platform and cached keys, and run with container logs on
   except 2026.11.0. From 2026.11.2 policies pin the dstack `app_id` and
@@ -148,10 +154,11 @@ Step-by-step for non-experts: [docs/VERIFY.md](docs/VERIFY.md).
 | Path | What |
 |------|------|
 | `attest-sidecar/` | Small Rust service serving `/.well-known/tee-attestation`; reproducible image build and publish scripts |
-| `verifier/` | `attested-vw-verify` CLI and library (dcap-qvl for TDX; VirTEE `sev` for SEV-SNP report checks, no SNP deployment yet) |
+| `verifier/` | `attested-vw-verify` CLI and library (dcap-qvl for TDX; VirTEE `sev` for SEV-SNP, verified in code, never run on hardware; Google-signed token for Confidential Space, never run on GCP) |
 | `common/` | `report_data` construction, attestation schema, policy format, compose checks |
 | `deploy/local/` | INSECURE mock stack + e2e test (no TEE needed) |
 | `deploy/dstack/` | dstack compose template, `render.sh`, simulator test |
+| `deploy/gcp-cs/` | Google Cloud Confidential Space: single workload image, `build.sh`, `deploy.sh` (prints commands, runs nothing); undeployed |
 | `policy/` | Release policies, their reviewed app-compose documents, measurement tooling |
 | `demo/` | Live smoke, policy bootstrap, relay and tamper demos with recorded outputs |
 | `docs/` | Threat model, architecture, Phala and self-hosting runbooks, verification guide, related work, decision log |
@@ -170,6 +177,8 @@ fails against a relay and against a wrong compose hash.
 
 * Phala Cloud (managed dstack, TDX): [docs/PHALA.md](docs/PHALA.md)
 * Self-hosted dstack: [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md)
+* AMD SEV-SNP (verified in code, never run on hardware; no guest image yet): [docs/SNP.md](docs/SNP.md)
+* Google Cloud Confidential Space (implemented, never run on GCP; trusts Google's attestation service rather than a hardware quote; no persistence): [docs/GCP_CONFIDENTIAL_SPACE.md](docs/GCP_CONFIDENTIAL_SPACE.md)
 
 ## Security
 

@@ -1,0 +1,13 @@
+CAA for vault.warden.facundo.dev (RFC 8659 search; resolvers: 1.1.1.1 8.8.8.8)
+  vault.warden.facundo.dev: no CAA (CNAME to gateway.dstack-pha1-prod5.phala.network, none there either)
+  warden.facundo.dev: 2 CAA record(s)
+    0 issue "letsencrypt.org; accounturi=https://acme-v02.api.letsencrypt.org/acme/acct/4048885521; validationmethods=tls-alpn-01"
+    0 issuewild ";"
+  governed by the set at warden.facundo.dev
+  ✓ vault.warden.facundo.dev: issue allows only letsencrypt.org, accounturi=https://acme-v02.api.letsencrypt.org/acme/acct/4048885521, validationmethods=tls-alpn-01
+CAA for *.warden.facundo.dev (wildcard that covers vault.warden.facundo.dev; search starts at warden.facundo.dev)
+  same search, same set
+  governed by the set at warden.facundo.dev
+  ✓ *.warden.facundo.dev: issuewild ";" forbids wildcard certificates from every CA
+CAA: PASS: only https://acme-v02.api.letsencrypt.org/acme/acct/4048885521 can obtain a certificate valid for vault.warden.facundo.dev (at issuance time, from CAs that honour RFC 8657)
+caa exit 0

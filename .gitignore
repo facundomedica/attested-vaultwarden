@@ -7,3 +7,5 @@ deploy/dstack/.generated/
 deploy/dstack/simulator/.generated/
 demo/tamper/.generated/
 registry.env
+deploy/gcp-cs/.generated/
+.claude/worktrees/

@@ -6,16 +6,33 @@ by `common/src/policy.rs`.
 
 A policy pins:
 
-* the platform (`tdx`, `sev-snp`);
+* the platform (`tdx`, `sev-snp`, `gcp-cs`);
 * expected firmware/OS measurements (TDX: MRTD, RTMR0-2; SNP: launch
   measurement);
-* the hash of the measured compose document (TDX/dstack: `compose_hash`);
+* the hash of the measured compose document (TDX/dstack: `compose_hash`;
+  SNP: `host_data`, see [docs/SNP.md](../docs/SNP.md), untested on hardware);
 * the allowlist of container images, each pinned by `@sha256:` digest;
-* accepted TCB status and PCK platform flags (`allow_smt`,
-  `allow_dynamic_platform`, `allow_cached_keys`, all default false);
-* optionally the RTMR3 `app_id` and `key_provider` (D-020: these differ
-  between Phala Cloud and self-hosted dstack, so each target gets its own
-  policy file).
+* the exact set of accepted TCB statuses, the lowest acceptable Intel TCB
+  evaluation data number (`min_tcb_eval_data_number`, default 20) and PCK
+  platform flags (`allow_smt`, `allow_dynamic_platform`,
+  `allow_cached_keys`, all default false);
+* the RTMR3 `app_id` and `key_provider`, both **mandatory** for TDX since
+  D-049 (D-020: they differ between Phala Cloud and self-hosted dstack, so
+  each target gets its own policy file);
+* SEV-SNP (D-050; verified in code, never run on hardware): `measurement`,
+  `min_tcb`, `compose_binding` and a non-zero `host_data` are **mandatory**;
+  `min_tcb.fmc` is needed for reports that carry an FMC SVN;
+* Confidential Space (D-051; implemented, never run on GCP; trusts Google's
+  attestation service; no persistence): `hwmodel`, `restart_policy` and
+  exactly one digest-pinned image are **mandatory**
+  ([docs/GCP_CONFIDENTIAL_SPACE.md](../docs/GCP_CONFIDENTIAL_SPACE.md));
+* optionally `mr_config_id`, `mr_owner`, `mr_owner_config` (unset: zero, or
+  for MRCONFIGID a dstack config id), `public_logs`, `allowed_bind_mounts`
+  and `command_override_services` (D-049).
+
+Policy files are release artifacts and are not edited after publication.
+When the verifier's rules tighten, an old policy may stop validating; that
+is recorded in the table below rather than patched into the file.
 
 Upgrades change measurements, so every legitimate version must appear here.
 A deployment whose measurements match no committed policy is, by definition,
@@ -25,8 +42,8 @@ not running published software.
 
 | Release | Platform | Logs | OS measurements | Live result |
 |---------|----------|------|-----------------|-------------|
-| `2026.11.0-phala-dev` | Phala Cloud, TDX, `tdx.small`, dstack 0.6.5 | off | reproduced with `dstack-mr` ([transcript](2026.11.0-phala-dev.reproduce.txt)) | PASS; relay demo FAIL (D-043) |
-| `2026.11.1-phala-dev` | same | on | same values as 2026.11.0 (same image and VM shape) | PASS; tamper demo FAIL then PASS (D-046) |
+| `2026.11.0-phala-dev` | Phala Cloud, TDX, `tdx.small`, dstack 0.6.5 | off | reproduced with `dstack-mr` ([transcript](2026.11.0-phala-dev.reproduce.txt)) | PASS; relay demo FAIL (D-043). **No longer accepted by the verifier** (no `app_id`, D-049) |
+| `2026.11.1-phala-dev` | same | on | same values as 2026.11.0 (same image and VM shape) | PASS; tamper demo FAIL then PASS (D-046). **No longer accepted by the verifier** (no `app_id`, D-049) |
 | `2026.11.2-phala-dev` | same | on | same values, reproduced again ([transcript](2026.11.2-phala-dev.reproduce.txt)) | PASS; first with `app_id` pinned and encrypted disk required; wrong `app_id` → FAIL (D-048) |
 
 Each release also has `<release>.app-compose.json`, the exact measured

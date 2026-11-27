@@ -6,7 +6,7 @@
 
 A static page where you enter a domain and get the same ✓/✗ lines and
 PASS/FAIL as `attested-vw-verify`, without installing anything. It is one
-self-contained file, `web/dist/index.html` (about 2.2 MB): the verifier core
+self-contained file, `web/dist/index.html` (about 3.2 MB): the verifier core
 compiled to WebAssembly, every `policy/*.toml`, and the list of previously
 attested TLS keys are inlined. No external script, style, font or CDN. Open
 it from disk or put it on any static host.
@@ -76,14 +76,20 @@ Other differences from the CLI:
 * **Collateral from a mirror.** Intel PCS sends no CORS headers, so the page
   fetches collateral from Phala's PCCS mirror, `https://pccs.phala.network`.
   The collateral is Intel-signed and verified in the wasm against the Intel
-  root built into dcap-qvl; the mirror is trusted for availability and
-  freshness only. There is no fallback.
+  root built into dcap-qvl. The mirror cannot forge it, but it chooses which
+  signed version the page sees: it can serve older TCB data, down to the
+  policy's `tdx.min_tcb_eval_data_number`. There is no fallback.
 * **Servers before release 2026.11.3 cannot be verified**: their attestation
   endpoint sends no `Access-Control-Allow-Origin`. The page says so
   (it distinguishes "answered but unreadable" from "unreachable" with a
   `no-cors` probe).
-* **No mock, no SEV-SNP.** The mock platform is always refused; SNP evidence
-  fails with "not supported by this build".
+* **TDX only.** The mock platform is always refused. SEV-SNP and
+  Confidential Space (`gcp-cs`) documents fail the evidence check with "not
+  supported in the browser verifier": the page fetches no VCEK and no Google
+  JWKS (whether those services allow cross-origin reads was not examined).
+* **Old policies.** Every `policy/*.toml` is bundled, but the verifier now
+  refuses policies without `tdx.app_id` (2026.11.0, 2026.11.1); selecting one
+  gives a FAIL that says so.
 * **The clock is the browser's.** Collateral validity and certificate expiry
   are judged against it.
 * **Image tags** (display only): the page tries the same Docker Hub lookup
@@ -150,7 +156,8 @@ What was run, on macOS arm64, rustc 1.97.1, wasm-bindgen 0.2.130, node 22:
 * `web/build.sh --check`: two builds in separate target directories are
   byte-identical (`reproducible: two independent builds are byte-identical`).
   Not compared across machines or operating systems.
-* `node web/test/run.mjs`: 8 tests pass on the built file.
+* `node web/test/run.mjs`: 8 tests pass on the built file (again after merging
+  `integrate/2026-11-27`).
 * The built page in a real browser (Chromium-based, served from
   `http://127.0.0.1`): loads under its CSP, starts the wasm, renders at
   phone and desktop width, light and dark. From that page's context:
@@ -165,11 +172,13 @@ What was run, on macOS arm64, rustc 1.97.1, wasm-bindgen 0.2.130, node 22:
 ### Live run against a real deployment: NOT DONE
 
 `https://vault.warden.facundo.dev` (release 2026.11.3, the first with CORS on
-the attestation endpoint) was not answering while this was written, and
-`policy/2026.11.3-phala-dev.toml` did not exist yet. So **no browser-mode
-PASS has been observed**, in Node or in a browser: the only real TDX quote
+the attestation endpoint) never answered while this was written (the gateway
+accepted the TCP connection and closed it; the VM was reported stopped), and
+`policy/2026.11.3-phala-dev.toml` did not exist. So **no browser-mode PASS
+has been observed**, in Node or in a browser: the only real TDX quote
 available offline was made for a different `report_data`. Everything up to
-that is tested; the end-to-end PASS is not.
+that is tested; the end-to-end PASS, and the claim that a 2026.11.3 server's
+CORS header is sufficient for a real browser, are not.
 
 To do it once the server is up and the policy is in `policy/`:
 

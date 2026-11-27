@@ -32,6 +32,7 @@ fn fixture() -> Fixture {
         platform: Platform::Mock,
         tdx: None,
         sev_snp: None,
+        gcp_cs: None,
         mock: Some(MockPolicy {
             compose_hash: hex::encode(compose::compose_hash(app_compose.as_bytes())),
         }),
@@ -42,6 +43,9 @@ fn fixture() -> Fixture {
 
         pre_launch_script_sha256: None,
         allowed_envs: vec![],
+        public_logs: None,
+        allowed_bind_mounts: vec![],
+        command_override_services: vec![],
     };
     Fixture {
         nonce: Nonce([9; 32]),

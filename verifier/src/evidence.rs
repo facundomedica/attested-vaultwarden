@@ -9,9 +9,7 @@ use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as B64;
 use dcap_qvl::QuoteCollateralV3;
 
-#[cfg(feature = "snp")]
-use crate::snp;
-use crate::tdx;
+use crate::{gcp_cs, snp, tdx};
 
 #[derive(Debug, thiserror::Error)]
 pub enum EvidenceError {
@@ -31,13 +29,12 @@ pub enum EvidenceError {
     NoVcek(String),
     #[error(transparent)]
     Tdx(#[from] tdx::TdxError),
-    #[cfg(feature = "snp")]
     #[error(transparent)]
     Snp(#[from] snp::SnpError),
-    #[error(
-        "SEV-SNP evidence is not supported by this build of the verifier (use the command-line verifier)"
-    )]
-    SnpUnsupported,
+    #[error("Google's signing keys are not available: {0}")]
+    NoJwks(String),
+    #[error(transparent)]
+    GcpCs(#[from] gcp_cs::GcpError),
 }
 
 /// Inputs to evidence verification that do not come from the server.
@@ -50,6 +47,10 @@ pub struct Context {
     pub tdx_collateral: Result<QuoteCollateralV3, String>,
     /// VCEK (DER) for the SNP report (from AMD KDS, or recorded in tests).
     pub snp_vcek_der: Result<Vec<u8>, String>,
+    /// JWKS (JSON text) that Confidential Space tokens must be signed by.
+    /// This is the trust anchor for `gcp-cs`: the CLI fetches it from the
+    /// pinned Google URL; only tests put anything else here.
+    pub gcp_jwks: Result<String, String>,
 }
 
 impl Context {
@@ -60,6 +61,7 @@ impl Context {
             now_secs: 0,
             tdx_collateral: Err("not fetched".into()),
             snp_vcek_der: Err("not fetched".into()),
+            gcp_jwks: Err("not fetched".into()),
         }
     }
 }
@@ -69,8 +71,8 @@ impl Context {
 pub enum Measured {
     Mock,
     Tdx(Box<tdx::VerifiedQuote>),
-    #[cfg(feature = "snp")]
     Snp(snp::VerifiedReport),
+    GcpCs(Box<gcp_cs::VerifiedToken>),
 }
 
 #[derive(Debug)]
@@ -84,6 +86,12 @@ pub struct Verified {
 
 pub fn decode_quote(ev: &Evidence) -> Result<Vec<u8>, EvidenceError> {
     B64.decode(&ev.quote).map_err(|_| EvidenceError::Base64)
+}
+
+/// VCEK from the SNP certificate table in `evidence.aux`, if present.
+pub fn snp_aux_vcek(ev: &Evidence) -> Option<Vec<u8>> {
+    let table = B64.decode(ev.aux.as_deref()?).ok()?;
+    crate::snp_launch::vcek_from_cert_table(&table)
 }
 
 pub fn verify(
@@ -124,6 +132,7 @@ pub fn verify(
                 coll,
                 ctx.now_secs,
                 &tp.accepted_tcb_status,
+                tp.min_tcb_eval_data_number,
                 tdx::PlatformFlags::from_policy(tp),
             )?;
             let adv = if v.advisory_ids.is_empty() {
@@ -134,15 +143,12 @@ pub fn verify(
             Ok(Verified {
                 report_data: ReportData(v.report_data),
                 summary: format!(
-                    "Intel DCAP quote signature and collateral valid, TCB {}{adv}, TD debug off",
-                    v.tcb_status
+                    "Intel DCAP quote signature and collateral valid, TCB {}{adv} (TCB evaluation data number {}, policy minimum {}), TD debug off",
+                    v.tcb_status, v.tcb_eval_data_number, tp.min_tcb_eval_data_number
                 ),
                 measured: Measured::Tdx(Box::new(v)),
             })
         }
-        #[cfg(not(feature = "snp"))]
-        Platform::SevSnp => Err(EvidenceError::SnpUnsupported),
-        #[cfg(feature = "snp")]
         Platform::SevSnp => {
             let sp = policy
                 .sev_snp
@@ -158,10 +164,29 @@ pub fn verify(
             Ok(Verified {
                 report_data: ReportData(v.report_data),
                 summary: format!(
-                    "AMD {} ARK→ASK→VCEK→report signatures valid, VCEK bound to TCB/chip, TCB {}, debug and migration off, VMPL 0",
-                    v.product, v.reported_tcb
+                    "AMD {} ARK→ASK→VCEK→report signatures valid, VCEK bound to TCB/chip, TCB {}, debug and migration off, VMPL {}",
+                    v.product, v.reported_tcb, v.report.vmpl
                 ),
                 measured: Measured::Snp(v),
+            })
+        }
+        Platform::GcpCs => {
+            if policy.gcp_cs.is_none() {
+                return Err(EvidenceError::PolicyMissing("gcp_cs"));
+            }
+            let token = decode_quote(ev)?;
+            let jwks = ctx
+                .gcp_jwks
+                .as_ref()
+                .map_err(|e| EvidenceError::NoJwks(e.clone()))?;
+            let v = gcp_cs::verify_token(&token, jwks, ctx.now_secs)?;
+            Ok(Verified {
+                report_data: v.report_data,
+                summary: format!(
+                    "Google Cloud Attestation token: RS256 signature valid under Google key {}, issuer, audience and validity window ok (no raw hardware quote is seen by this verifier)",
+                    v.kid
+                ),
+                measured: Measured::GcpCs(Box::new(v)),
             })
         }
     }

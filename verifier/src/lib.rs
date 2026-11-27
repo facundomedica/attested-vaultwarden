@@ -6,9 +6,9 @@
 //! need the network, so they can be unit-tested against recorded fixtures.
 //!
 //! Without the default `cli` feature the crate is only that pure,
-//! synchronous core (no TLS client, no HTTP, no RNG, no clock) and builds
-//! for `wasm32-unknown-unknown`. A browser cannot read the TLS certificate
-//! of its own connection, so there the caller uses
+//! synchronous core (no TLS client, no HTTP, no RNG, no clock), which also
+//! builds for `wasm32-unknown-unknown`. A browser cannot read the TLS
+//! certificate of its own connection, so there the caller uses
 //! [`check_document_browser`] plus [`ct::check`] (Certificate Transparency)
 //! instead of the per-connection TLS key check.
 
@@ -19,14 +19,15 @@ pub mod ct;
 pub mod evidence;
 #[cfg(feature = "cli")]
 pub mod fetch;
+pub mod gcp_cs;
 #[cfg(feature = "cli")]
 pub mod net;
 #[cfg(feature = "cli")]
 mod online;
 pub mod registry;
 pub mod report;
-#[cfg(feature = "snp")]
 pub mod snp;
+pub mod snp_launch;
 pub mod tdx;
 
 use attested_vw_common::compose;
@@ -37,7 +38,7 @@ use attested_vw_common::schema::{AttestationResponse, Platform, SCHEMA_VERSION};
 #[cfg(feature = "cli")]
 pub use net::Roots;
 #[cfg(feature = "cli")]
-pub use online::{Options, verify};
+pub use online::{Options, REGISTRY_LOOKUP_BUDGET, verify};
 pub use report::{Check, CheckId, Observed, Report};
 
 fn hex_eq(expected: &str, got: &[u8]) -> bool {
@@ -56,7 +57,9 @@ enum TlsKey<'a> {
 }
 
 /// Note recorded on every browser-mode report.
-pub const BROWSER_MODE_NOTE: &str = "browser mode: a web page cannot read the TLS certificate of its own connection, so the per-connection check \"TLS key bound to attestation\" is NOT done here; it is replaced by the Certificate Transparency check (every currently valid logged certificate for the name must have an attested key)";
+pub const BROWSER_MODE_NOTE: &str = "browser mode: a web page cannot read the TLS certificate of its own connection, \
+so the per-connection check \"TLS key bound to attestation\" is NOT done here; \
+it is replaced by the Certificate Transparency check (every currently valid logged certificate for the name must have an attested key)";
 
 /// All checks after the network step. `our_spki` and `our_nonce` come from
 /// the verifier's own handshake and RNG, never from the document.
@@ -84,7 +87,7 @@ pub fn check_document(
 /// * no `SpkiBinding` check is recorded (neither ✓ nor ✗); the report is
 ///   marked `browser_mode` and carries [`BROWSER_MODE_NOTE`];
 /// * `report_data` is recomputed from our nonce and the SPKI hash **the
-///   server reports** (`ReportDataClaimed`). That proves a genuine TD with
+///   server reports** (`ReportDataClaimed`). That proves a genuine TEE with
 ///   this software vouches for that key, not that our connection uses it;
 /// * if that holds, `report.attested_spki` is set, for [`ct::check`], which
 ///   must then be run on the same report: without a `CtBinding` check a
@@ -97,7 +100,7 @@ pub fn check_document_browser(
     report: &mut Report,
 ) {
     report.browser_mode = true;
-    report.notes.push(BROWSER_MODE_NOTE.to_owned());
+    report.note(BROWSER_MODE_NOTE);
     check_document_inner(body, TlsKey::Unobservable, our_nonce, policy, ctx, report);
 }
 
@@ -248,6 +251,13 @@ fn check_document_inner(
         }
     }
 
+    // Confidential Space: there is no compose document or event log; what
+    // runs is one image, named by claims in the Google-signed token.
+    if let evidence::Measured::GcpCs(tok) = &verified.measured {
+        gcp_cs::check_claims(tok, policy, report);
+        return;
+    }
+
     // Measurements, event log and the measured compose hash.
     let got_compose = compose::compose_hash(doc.app_compose.as_bytes());
     report.observed.compose_hash_served = Some(hex::encode(got_compose));
@@ -257,14 +267,22 @@ fn check_document_inner(
         .as_deref()
         .and_then(|v| serde_json::from_str(v).ok());
     report.observed.pre_launch_script_sha256 = compose::pre_launch_script_sha256(&doc.app_compose);
-    report.observed.allowed_envs = serde_json::from_str::<serde_json::Value>(&doc.app_compose)
+    report.observed.allowed_envs = compose::parse_json_strict(&doc.app_compose)
         .ok()
         .and_then(|v| v.get("allowed_envs").cloned())
         .and_then(|a| serde_json::from_value(a).ok())
         .unwrap_or_default();
+    report.observed.app_compose_flags =
+        compose::app_compose_flags(&doc.app_compose).unwrap_or_default();
     if let evidence::Measured::Tdx(q) = &verified.measured {
         let o = &mut report.observed;
         o.tcb_status = Some(q.tcb_status.clone());
+        o.tcb_eval_data_number = Some(q.tcb_eval_data_number);
+        o.mr_config_id = Some(hex::encode(q.mr_config_id));
+        o.mr_owner = Some(hex::encode(q.mr_owner));
+        o.mr_owner_config = Some(hex::encode(q.mr_owner_config));
+        o.td_attributes = Some(hex::encode(q.td_attributes));
+        o.xfam = Some(hex::encode(q.xfam));
         o.advisory_ids = q.advisory_ids.clone();
         o.pck_flags_set = q.pck_flags_set.iter().map(|s| s.to_string()).collect();
         o.mrtd = Some(hex::encode(q.mr_td));
@@ -282,39 +300,15 @@ fn check_document_inner(
             Some(got_compose)
         }
         evidence::Measured::Tdx(q) => check_tdx_measurements(q, &doc, policy, report),
-        #[cfg(feature = "snp")]
-        evidence::Measured::Snp(r) => {
-            match policy.sev_snp.as_ref() {
-                Some(sp) if hex_eq(&sp.measurement, &r.measurement) => report.pass(
-                    CheckId::Measurements,
-                    format!(
-                        "launch measurement {} matches release {}",
-                        hex::encode(r.measurement),
-                        policy.release
-                    ),
-                ),
-                Some(sp) => report.fail(
-                    CheckId::Measurements,
-                    format!(
-                        "launch measurement {} but policy expects {}",
-                        hex::encode(r.measurement),
-                        sp.measurement
-                    ),
-                ),
-                None => report.fail(CheckId::Measurements, "policy has no sev_snp section"),
-            }
-            report.fail(
-                CheckId::EventLog,
-                "SEV-SNP: binding the compose document to the launch measurement is not implemented yet (stretch goal)",
-            );
-            None
-        }
+        evidence::Measured::Snp(r) => snp_launch::check_binding(r, policy, report),
+        evidence::Measured::GcpCs(_) => None, // handled above
     };
 
     let expected_hash = match policy.platform {
         Platform::Mock => policy.mock.as_ref().map(|m| m.compose_hash.as_str()),
         Platform::Tdx => policy.tdx.as_ref().map(|t| t.compose_hash.as_str()),
-        Platform::SevSnp => None,
+        Platform::SevSnp => snp_launch::expected_compose_hash(policy),
+        Platform::GcpCs => None,
     };
     let got_hex = hex::encode(got_compose);
     match (expected_hash, measured_compose) {
@@ -341,19 +335,7 @@ fn check_document_inner(
         ),
     }
 
-    // Nothing outside the measured document may decide what runs.
-    match compose::config_problems(
-        &doc.app_compose,
-        policy.pre_launch_script_sha256.as_deref(),
-        &policy.allowed_envs,
-    ) {
-        Err(e) => report.fail(CheckId::Config, e.to_string()),
-        Ok(p) if p.is_empty() => report.pass(
-            CheckId::Config,
-            "pre-launch script, init script and encrypted env names exactly as the policy pins; no variable interpolation",
-        ),
-        Ok(p) => report.fail(CheckId::Config, p.join("; ")),
-    }
+    check_config(&doc.app_compose, policy, report);
 
     // Images, derived from the (hash-checked) app-compose, never from
     // `image_digests`.
@@ -366,9 +348,10 @@ fn check_document_inner(
                 .iter()
                 .map(|i| (i.service.clone(), i.image.clone()))
                 .collect();
+            let clean = |s: &str| report::sanitize(s, report::MAX_DETAIL_CHARS);
             report.observed.images = imgs
                 .iter()
-                .map(|i| (i.service.clone(), i.image.clone()))
+                .map(|i| (clean(&i.service), clean(&i.image)))
                 .collect();
             let problems = compose::check_images(&imgs, &allow);
             if problems.is_empty() {
@@ -383,16 +366,88 @@ fn check_document_inner(
                 let msg: Vec<String> = problems.iter().map(|p| p.to_string()).collect();
                 report.fail(CheckId::Images, msg.join("; "));
             }
-            // One line per service with the full reference. Tag names are
-            // added later, outside the core, and never affect the verdict.
+            // One line per service with the full reference (a separate
+            // field, so details stay single-line). Tag names are added
+            // later, outside the core, and never affect the verdict.
             let lines = registry::sub_lines(&report.observed.images, &[]);
             report.set_sub(CheckId::Images, lines);
             if doc.image_digests != imgs {
-                report.notes.push(
-                    "note: informational `image_digests` field differs from the measured compose (ignored)".into(),
+                report.note(
+                    "note: informational `image_digests` field differs from the measured compose (ignored)",
                 );
             }
         }
+    }
+}
+
+/// The `Config` check. Nothing outside the measured document may decide
+/// what runs (launch scripts, injected env, interpolation), the compose
+/// must not hand a container host-level access
+/// ([`compose::hardening_problems`]), and `public_logs` must be what the
+/// policy pins. These are known pitfalls, not a proof of a safe
+/// configuration: the compose hash is what pins the document.
+fn check_config(app_compose: &str, policy: &Policy, report: &mut Report) {
+    let hardening = compose::Hardening {
+        allowed_bind_mounts: &policy.allowed_bind_mounts,
+        command_override_services: &policy.command_override_services,
+    };
+    let problems = compose::config_problems(
+        app_compose,
+        policy.pre_launch_script_sha256.as_deref(),
+        &policy.allowed_envs,
+    )
+    .and_then(|mut p| {
+        p.extend(compose::hardening_problems(app_compose, hardening)?);
+        let logs = compose::flag(app_compose, "public_logs")?;
+        match policy.public_logs {
+            Some(want) if want != logs => p.push(format!(
+                "app-compose has public_logs = {logs} (container logs {} served outside the CVM), policy pins {want}",
+                if logs { "are" } else { "are not" }
+            )),
+            Some(_) => {}
+            None => report.note(format!(
+                "policy does not pin public_logs; the measured app-compose has public_logs = {logs}{}",
+                if logs { ": container logs are readable from outside the CVM" } else { "" }
+            )),
+        }
+        Ok((p, logs))
+    });
+    match problems {
+        Err(e) => report.fail(CheckId::Config, e.to_string()),
+        Ok((p, logs)) if p.is_empty() => report.pass(
+            CheckId::Config,
+            format!(
+                "pre-launch script, init script and encrypted env names as the policy pins; no variable interpolation; no privileged, host-namespace, host-path or command-override settings; public_logs = {logs}"
+            ),
+        ),
+        Ok((p, _)) => report.fail(CheckId::Config, p.join("; ")),
+    }
+}
+
+/// The key provider recorded in RTMR3 against the policy pin and against
+/// the `key_provider_id` the measured app-compose asks for.
+fn key_provider_problems(
+    measured: &str,
+    pin: Option<&str>,
+    app_compose: &str,
+    problems: &mut Vec<String>,
+) {
+    match pin {
+        None => problems.push("policy does not pin key_provider (required)".into()),
+        Some(want) if want != measured => {
+            problems.push(format!("key-provider is {measured} (policy: {want})"))
+        }
+        Some(_) => {}
+    }
+    let measured_id = attested_vw_common::policy::key_provider_id(measured);
+    match (compose::key_provider_id(app_compose), measured_id) {
+        (Err(e), _) => problems.push(e.to_string()),
+        (_, Err(e)) => problems.push(format!("key-provider payload {measured}: {e}")),
+        (Ok(None), Ok(_)) => {}
+        (Ok(Some(want)), Ok(got)) if want == got => {}
+        (Ok(Some(want)), Ok(got)) => problems.push(format!(
+            "app-compose asks for key_provider_id {want} but the key provider measured in RTMR3 has id `{got}`"
+        )),
     }
 }
 
@@ -454,23 +509,32 @@ fn check_tdx_measurements(
     };
     report.observed.compose_hash_measured = Some(hex::encode(facts.compose_hash));
     report.observed.app_id = Some(hex::encode(&facts.app_id));
-    report.observed.key_provider = Some(facts.key_provider.clone());
+    report.observed.key_provider = Some(report::sanitize(
+        &facts.key_provider,
+        report::MAX_DETAIL_CHARS,
+    ));
+    report.observed.rtmr3_events = events.iter().map(|e| e.name.clone()).collect();
     let mut problems = Vec::new();
-    if let Some(want) = &tp.app_id
-        && !hex_eq(want, &facts.app_id)
-    {
-        problems.push(format!(
+    // Both pins are mandatory (Policy::validate); a policy built in code
+    // without them fails here rather than skipping the check.
+    match &tp.app_id {
+        None => problems.push("policy does not pin app_id (required)".into()),
+        Some(want) if !hex_eq(want, &facts.app_id) => problems.push(format!(
             "app-id is {} (policy: {want})",
             hex::encode(&facts.app_id)
-        ));
+        )),
+        Some(_) => {}
     }
-    if let Some(want) = &tp.key_provider
-        && *want != facts.key_provider
-    {
-        problems.push(format!(
-            "key-provider is {} (policy: {want})",
-            facts.key_provider
-        ));
+    key_provider_problems(
+        &facts.key_provider,
+        tp.key_provider.as_deref(),
+        &doc.app_compose,
+        &mut problems,
+    );
+    let (launch, launch_note) = tdx::check_launch_fields(q, tp, &facts.compose_hash);
+    problems.extend(launch);
+    if let Some(n) = launch_note {
+        report.note(n);
     }
     if tp.require_storage_encrypted && facts.storage_encrypted != Some(true) {
         problems.push(
@@ -500,6 +564,10 @@ fn check_tdx_measurements(
     }
 }
 
+#[cfg(test)]
+mod gcp_cs_tests;
+#[cfg(test)]
+mod snp_tests;
 #[cfg(test)]
 mod tdx_doc_tests;
 #[cfg(test)]

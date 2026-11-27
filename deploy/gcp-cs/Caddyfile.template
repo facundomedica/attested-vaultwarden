@@ -1,0 +1,26 @@
+# Rendered at image build time (deploy/gcp-cs/Dockerfile); the result is
+# part of the attested image. Same shape as the dstack deployment's.
+{
+	admin off
+	# No listener on port 80 (Caddy would otherwise open one to redirect
+	# HTTP to HTTPS). The container shares the VM's network namespace and
+	# the Vaultwarden base image declares EXPOSE 80, which makes the
+	# launcher open that port in the VM firewall: nothing must answer there.
+	auto_https disable_redirects
+}
+__DOMAIN__ {
+	# One pinned issuer, so the sidecar knows where the leaf lives.
+	# TLS-ALPN-01 only: port 80 is not exposed.
+	tls {
+		issuer acme {
+			dir https://__ACME_HOST__/directory
+			disable_http_challenge
+		}
+	}
+	handle /.well-known/tee-attestation {
+		reverse_proxy 127.0.0.1:8081
+	}
+	handle {
+		reverse_proxy 127.0.0.1:8080
+	}
+}

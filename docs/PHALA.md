@@ -106,6 +106,19 @@ pre-launch.sh -e registry.env --no-dev-os`.)
 * `--no-pre-launch-script`: otherwise Phala injects its default script
   (registry login, image prune, env exports), which runs outside our image
   allowlist and which the verifier refuses by default (`Config` check).
+  **From the 2026.11.4 template on, use `--pre-launch-script pre-launch.sh
+  --no-dev-os` for both targets instead** (D-049): `render.sh` now writes
+  `pre-launch.sh` for `phala` too. It removes every container and unused
+  network left on the data disk before `docker compose up`, so that all
+  containers are created from the measured compose (after an update that
+  only changed the inline Caddyfile, compose kept the old proxy container
+  and Caddy kept the old configuration under the new compose hash). For
+  `phala-private` the GHCR login follows in the same file. Pin the printed
+  `pre_launch_script_sha256` in the policy. `--no-dev-os` matters for the
+  reason given in step 1b. Not yet run on Phala: check on the first deploy
+  that the Docker daemon is up when the script runs (Phala's own default
+  script calls `docker image prune` at the same point) and that the boot
+  log shows the removals.
 * `--public-logs` / `--no-public-logs`: measured into the app-compose, so
   it is part of the release. The CLI describes it as making CVM logs
   *publicly* accessible. Development releases keep logs **on** (with logs

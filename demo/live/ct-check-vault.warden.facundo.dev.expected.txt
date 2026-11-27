@@ -1,0 +1,4 @@
+CT: 0 certificate(s) for vault.warden.facundo.dev (Cert Spotter); 2 attested key(s) known; 0 expired dropped
+CT: crt.sh has 0 certificate(s) (precertificates merged); 0 not in Cert Spotter, 0 in Cert Spotter only
+CT: no unexpired certificate logged for vault.warden.facundo.dev: nothing to check (Cert Spotter and crt.sh)
+ct exit 0

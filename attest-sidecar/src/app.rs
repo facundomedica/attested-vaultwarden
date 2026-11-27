@@ -1,5 +1,6 @@
 //! HTTP handler for the attestation endpoint.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -11,7 +12,7 @@ use attested_vw_common::schema::{AttestationResponse, ImageDigest, SCHEMA_VERSIO
 use attested_vw_common::tls;
 use axum::Router;
 use axum::extract::{DefaultBodyLimit, RawQuery, State as AxState};
-use axum::http::{HeaderValue, StatusCode, header};
+use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use tokio::sync::Semaphore;
@@ -25,36 +26,122 @@ const PROVIDER_TIMEOUT: Duration = Duration::from_secs(10);
 /// Concurrent evidence requests.
 const MAX_CONCURRENT: usize = 4;
 
-/// Fixed-window global rate limiter. The sidecar sits behind the proxy, so
-/// client IPs are not meaningful here; the budget protects the guest agent.
+/// Most client addresses tracked at once. When the table is full and no
+/// entry has expired, further new clients share one bucket.
+const MAX_TRACKED_CLIENTS: usize = 4096;
+
+/// Request budgets per second.
+#[derive(Debug, Clone, Copy)]
+pub struct Rates {
+    /// Per client address (as reported by the proxy).
+    pub per_client: u32,
+    /// All clients together; protects the guest agent.
+    pub global: u32,
+}
+
+impl Rates {
+    pub const DEFAULT: Rates = Rates {
+        per_client: 5,
+        global: 40,
+    };
+}
+
+/// Fixed one-second window counter.
+#[derive(Debug, Clone, Copy)]
+struct Window {
+    start: Instant,
+    count: u32,
+}
+
+impl Window {
+    fn new(now: Instant) -> Self {
+        Self {
+            start: now,
+            count: 0,
+        }
+    }
+
+    fn expired(&self, now: Instant) -> bool {
+        now.duration_since(self.start) >= Duration::from_secs(1)
+    }
+
+    fn allow(&mut self, now: Instant, per_sec: u32) -> bool {
+        if self.expired(now) {
+            *self = Self::new(now);
+        }
+        if self.count >= per_sec {
+            return false;
+        }
+        self.count += 1;
+        true
+    }
+}
+
+/// Two-level rate limiter: a budget per client address and a larger global
+/// one. With only a global budget, one outsider sending a handful of
+/// requests per second makes every honest verifier see HTTP 429.
+///
+/// The client address is the last element of `X-Forwarded-For`, which the
+/// proxy (Caddy) writes itself from the TCP peer; nothing else can reach
+/// the sidecar's port. Where every client arrives from the same address
+/// (dstack gateway passthrough without PROXY protocol) they share one
+/// per-client budget, as before; the verifier retries once on 429.
 #[derive(Debug)]
 struct RateLimiter {
-    per_sec: u32,
-    window: Mutex<(Instant, u32)>,
+    rates: Rates,
+    state: Mutex<(Window, HashMap<String, Window>)>,
 }
 
 impl RateLimiter {
-    fn new(per_sec: u32) -> Self {
+    fn new(rates: Rates) -> Self {
         Self {
-            per_sec,
-            window: Mutex::new((Instant::now(), 0)),
+            rates,
+            state: Mutex::new((Window::new(Instant::now()), HashMap::new())),
         }
     }
 
-    fn allow(&self) -> bool {
-        let Ok(mut w) = self.window.lock() else {
+    fn allow(&self, client: &str) -> bool {
+        self.allow_at(client, Instant::now())
+    }
+
+    fn allow_at(&self, client: &str, now: Instant) -> bool {
+        let Ok(mut guard) = self.state.lock() else {
             return false;
         };
-        let now = Instant::now();
-        if now.duration_since(w.0) >= Duration::from_secs(1) {
-            *w = (now, 0);
+        let (global, clients) = &mut *guard;
+        if !clients.contains_key(client) && clients.len() >= MAX_TRACKED_CLIENTS {
+            clients.retain(|_, w| !w.expired(now));
         }
-        if w.1 >= self.per_sec {
-            return false;
-        }
-        w.1 += 1;
-        true
+        let key = if clients.contains_key(client) || clients.len() < MAX_TRACKED_CLIENTS {
+            client
+        } else {
+            "(overflow)"
+        };
+        let w = clients
+            .entry(key.to_owned())
+            .or_insert_with(|| Window::new(now));
+        // Per-client first, so a client over its own budget does not eat
+        // the global one.
+        w.allow(now, self.rates.per_client) && global.allow(now, self.rates.global)
     }
+}
+
+/// Longest client key kept (an IPv6 address is 39 characters).
+const MAX_CLIENT_KEY: usize = 64;
+
+/// The client address the proxy saw: the last `X-Forwarded-For` element.
+/// Requests without the header (none in the published compose) share a key.
+fn client_key(headers: &HeaderMap) -> String {
+    headers
+        .get_all("x-forwarded-for")
+        .iter()
+        .next_back()
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.rsplit(',').next())
+        .map(str::trim)
+        .filter(|v| !v.is_empty() && v.len() <= MAX_CLIENT_KEY)
+        .unwrap_or("(none)")
+        .to_owned()
 }
 
 #[derive(Debug)]
@@ -74,7 +161,7 @@ impl<P: QuoteProvider> State<P> {
         provider: P,
         cert_path: PathBuf,
         app_compose: String,
-        per_sec: u32,
+        rates: Rates,
     ) -> Result<Self, compose::ComposeError> {
         let images = compose::images(&compose::docker_compose_file(&app_compose)?)?;
         Ok(Self {
@@ -82,9 +169,24 @@ impl<P: QuoteProvider> State<P> {
             cert_path,
             app_compose,
             images,
-            limiter: RateLimiter::new(per_sec),
+            limiter: RateLimiter::new(rates),
             in_flight: Semaphore::new(MAX_CONCURRENT),
         })
+    }
+}
+
+impl<P: QuoteProvider> State<P> {
+    /// For platforms with no measured compose document (gcp-cs): the
+    /// document's `app_compose` is empty and `image_digests` is `[]`.
+    pub fn without_compose(provider: P, cert_path: PathBuf, rates: Rates) -> Self {
+        Self {
+            provider,
+            cert_path,
+            app_compose: String::new(),
+            images: Vec::new(),
+            limiter: RateLimiter::new(rates),
+            in_flight: Semaphore::new(MAX_CONCURRENT),
+        }
     }
 }
 
@@ -129,12 +231,13 @@ async fn current_spki(
 async fn handler<P: QuoteProvider>(
     AxState(st): AxState<Arc<State<P>>>,
     RawQuery(query): RawQuery,
+    headers: HeaderMap,
 ) -> Response {
     let nonce = match parse_nonce(query.as_deref()) {
         Ok(n) => n,
         Err(msg) => return error(StatusCode::BAD_REQUEST, msg),
     };
-    if !st.limiter.allow() {
+    if !st.limiter.allow(&client_key(&headers)) {
         return error(StatusCode::TOO_MANY_REQUESTS, "rate limited");
     }
     let Ok(_permit) = st.in_flight.try_acquire() else {
@@ -212,7 +315,7 @@ mod tests {
             env!("CARGO_MANIFEST_DIR"),
             "/../common/testdata/test-cert.pem"
         ));
-        match State::new(Mock, cert, compose, per_sec) {
+        match State::new(Mock, cert, compose, rates(per_sec)) {
             Ok(s) => Arc::new(s),
             Err(e) => panic!("state: {e}"),
         }
@@ -282,5 +385,94 @@ mod tests {
         let (s2, _) = get(app, &uri).await;
         assert_eq!(s1, StatusCode::OK);
         assert_eq!(s2, StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    async fn get_from(app: Router, xff: &str) -> StatusCode {
+        let uri = format!("/.well-known/tee-attestation?nonce={}", "ab".repeat(32));
+        let req = Request::builder()
+            .uri(uri)
+            .header("x-forwarded-for", xff)
+            .body(Body::empty())
+            .unwrap();
+        app.oneshot(req).await.unwrap().status()
+    }
+
+    /// One client exhausting its budget must not lock out another: the
+    /// review found that 5 requests/s from anyone made every verifier fail.
+    #[tokio::test]
+    async fn one_client_cannot_starve_another() {
+        let app = router(state(1));
+        assert_eq!(get_from(app.clone(), "198.51.100.7").await, StatusCode::OK);
+        for _ in 0..20 {
+            assert_eq!(
+                get_from(app.clone(), "198.51.100.7").await,
+                StatusCode::TOO_MANY_REQUESTS
+            );
+        }
+        assert_eq!(get_from(app.clone(), "203.0.113.9").await, StatusCode::OK);
+        // Only the element the proxy appended counts: a client cannot get a
+        // fresh budget by sending its own X-Forwarded-For prefix.
+        assert_eq!(
+            get_from(app, "10.0.0.1, 203.0.113.9").await,
+            StatusCode::TOO_MANY_REQUESTS
+        );
+    }
+
+    #[test]
+    fn limiter_budgets() {
+        let l = RateLimiter::new(Rates {
+            per_client: 2,
+            global: 3,
+        });
+        let t0 = Instant::now();
+        assert!(l.allow_at("a", t0) && l.allow_at("a", t0));
+        assert!(!l.allow_at("a", t0), "per-client budget");
+        assert!(l.allow_at("b", t0));
+        assert!(!l.allow_at("c", t0), "global budget");
+        // A rejected client did not consume the global budget meanwhile.
+        let t1 = t0 + Duration::from_secs(1);
+        assert!(l.allow_at("a", t1) && l.allow_at("c", t1));
+
+        // The table is bounded; expired entries make room.
+        let l = RateLimiter::new(Rates {
+            per_client: 1,
+            global: u32::MAX,
+        });
+        for i in 0..MAX_TRACKED_CLIENTS {
+            assert!(l.allow_at(&format!("c{i}"), t0));
+        }
+        assert!(l.allow_at("overflow-1", t0));
+        assert!(
+            !l.allow_at("overflow-2", t0),
+            "overflow clients share a bucket"
+        );
+        assert!(l.state.lock().unwrap().1.len() <= MAX_TRACKED_CLIENTS + 1);
+        assert!(l.allow_at("late", t1));
+        assert!(l.state.lock().unwrap().1.len() <= 2);
+    }
+
+    #[test]
+    fn client_key_is_the_proxys_element() {
+        let mut h = HeaderMap::new();
+        assert_eq!(client_key(&h), "(none)");
+        h.insert("x-forwarded-for", HeaderValue::from_static("1.2.3.4"));
+        assert_eq!(client_key(&h), "1.2.3.4");
+        h.insert(
+            "x-forwarded-for",
+            HeaderValue::from_static("9.9.9.9, 1.2.3.4 "),
+        );
+        assert_eq!(client_key(&h), "1.2.3.4");
+        h.append("x-forwarded-for", HeaderValue::from_static("5.6.7.8"));
+        assert_eq!(client_key(&h), "5.6.7.8");
+        let long = "a".repeat(MAX_CLIENT_KEY + 1);
+        h.insert("x-forwarded-for", HeaderValue::from_str(&long).unwrap());
+        assert_eq!(client_key(&h), "(none)");
+    }
+
+    fn rates(per_client: u32) -> Rates {
+        Rates {
+            per_client,
+            global: 40,
+        }
     }
 }

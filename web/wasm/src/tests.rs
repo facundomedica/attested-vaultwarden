@@ -57,6 +57,9 @@ allow_smt = true
 allow_dynamic_platform = true
 allow_cached_keys = true
 require_storage_encrypted = false
+app_id = "60618cd0c23d15d921b788b8fc3a0d024ac72295"
+key_provider = '{{"name":"none","id":""}}'
+min_tcb_eval_data_number = 20
 [[images]]
 service = "vaultwarden"
 image = "{image}"
@@ -138,7 +141,10 @@ fn recorded_quote_in_browser_mode() {
         "{text}"
     );
     assert_eq!(out["passed"], false);
-    assert!(text.contains("TCB UpToDate, TD debug off"), "{text}");
+    assert!(
+        text.contains("TCB UpToDate") && text.contains("TD debug off"),
+        "{text}"
+    );
     assert!(text.contains("9 RTMR3 events replay to the quoted RTMR3"));
     assert!(!text.contains("TLS key bound to attestation:"));
     assert!(text.contains("browser mode: a web page cannot read the TLS certificate"));

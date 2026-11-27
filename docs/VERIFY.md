@@ -58,7 +58,7 @@ It needs internet access to the server and to Intel's attestation service
 
 You get a list of checks, each ✓ or ✗ with a reason, and a final
 `Result: PASS` or `Result: FAIL`. The exit code is 0 only for PASS. Add
-`--json` for machine-readable output.
+`--json` for machine-readable output; it carries the verdict as `result` (`PASS`, `FAIL`, `INSECURE_MOCK`) and `exit_code`, so do not derive it from the checks.
 
 ## Step 4: what each line means
 
