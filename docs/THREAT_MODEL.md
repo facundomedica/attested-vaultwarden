@@ -164,10 +164,11 @@ evidence shows that history. What exists today:
   verifier still catches a server using them. CAA: the name is now an A
   record with its own CAA set (Let's Encrypt, the in-CVM account,
   TLS-ALPN-01 only, no wildcard), which stops other CAs and other accounts
-  for the exact name. It does not stop a wildcard for the parent: that
-  follows the parent's CAA set, and the apex of `facundo.dev` has none
-  (`demo/live/caa-check-vault.facundo.dev.expected.txt` FAILs on that
-  line). Two further limits: the ACME account key is on the persistent
+  for the exact name. A wildcard for the parent follows the parent's CAA
+  set: the apex of `facundo.dev` has `issuewild ";"` since 2026-11-27, so
+  no new `*.facundo.dev` may be issued
+  (`demo/live/caa-check-vault.facundo.dev.expected.txt` passes on both
+  lines). Two further limits: the ACME account key is on the persistent
   disk (§1), so whoever can boot another compose under the app id can copy
   it and issue from outside under the same `accounturi`; and the operator
   controls the DNS zone, so can change or remove the CAA set (visible only

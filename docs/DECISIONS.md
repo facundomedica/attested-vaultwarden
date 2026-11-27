@@ -990,6 +990,19 @@ CVM (D-048: Cloudflare's Universal SSL wildcards cover the name).
   CAA. An apex `issuewild ";"` would close that but also forbids wildcard
   certificates for every other name without its own set (`*.apps` exists
   in the zone); left for the owner to decide.
+* **Apex `issuewild ";"` added (2026-11-27, later the same day).** The
+  owner decided to add it: `facundo.dev. CAA 0 issuewild ";"`, the only
+  CAA record at the apex (no `issue` record, so exact-name issuance for
+  the apex and for names without their own set is unchanged; the GitHub
+  Pages site at the apex still serves). Cloudflare added no CAA records of
+  its own (checked at the authoritative servers, 1.1.1.1 and 8.8.8.8).
+  `caa-check.sh` now PASSes on both lines
+  (`demo/live/caa-check-vault.facundo.dev.expected.txt`). Cost: no CA may
+  issue a wildcard for any name of the zone without its own CAA set,
+  `*.apps` included. **Remaining exposure:** only the five already-issued
+  Cloudflare wildcard certificates, until they expire (the last on
+  2027-01-31); and the operator still controls DNS, so can change or
+  remove CAA, which is visible to anyone polling the records.
 * **`vault.warden.facundo.dev` abandoned.** The dedicated-parent layout
   (CAA at `warden.facundo.dev`, D-048's suggestion) was set up, but Phala
   did not route the two-label name (cause unknown). Its CNAME, TXT and the

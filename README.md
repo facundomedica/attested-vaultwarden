@@ -155,12 +155,12 @@ Step-by-step for non-experts: [docs/VERIFY.md](docs/VERIFY.md).
   existing ones stay valid until they expire (the last on 2027-01-31;
   [demo/live/ct-check.expected.txt](demo/live/ct-check.expected.txt)).
   The verifier still catches a server using them on your connection.
-* **CAA is pinned at the name, not at the zone.** `vault.facundo.dev` is now
-  an A record with its own CAA set: only Let's Encrypt, only the ACME
-  account that lives in the CVM, only TLS-ALPN-01, no wildcards. The zone
-  apex has no CAA record, so a wildcard `*.facundo.dev` (which covers the
-  name) can still be issued by any CA to whoever controls the DNS zone;
-  `demo/live/caa-check.sh` reports exactly that
+* **CAA is pinned at the name, and wildcards are forbidden at the zone.**
+  `vault.facundo.dev` is an A record with its own CAA set: only Let's
+  Encrypt, only the ACME account that lives in the CVM, only TLS-ALPN-01,
+  no wildcards. Since 2026-11-27 the zone apex has `issuewild ";"`, so no
+  CA may issue a new `*.facundo.dev` (which would cover the name);
+  `demo/live/caa-check.sh` passes on both
   ([recorded](demo/live/caa-check-vault.facundo.dev.expected.txt)). CAA and
   CT constrain and expose the operator; they do not remove the operator's
   control of DNS (THREAT_MODEL R2).

@@ -66,12 +66,13 @@ name must be an **A record** to the gateway (cost: the gateway's address is
 copied into the zone and must be updated if Phala moves it). The demo name
 has `issue "letsencrypt.org; accounturi=…/acct/4048885521;
 validationmethods=tls-alpn-01"` and `issuewild ";"`; Caddy renewed under it.
-What it does not cover: a wildcard `*.parent` also covers the name, and its
-issuance follows the *parent's* CAA set. `facundo.dev` has none (a zone-wide
-`issuewild ";"` would also hit other wildcard names of the zone), so
-`demo/live/caa-check.sh` FAILs on that line. A dedicated parent domain with
-CAA at its apex closes it. In every case the DNS operator can change CAA:
-it is a tripwire together with CT, not a barrier against the operator.
+A wildcard `*.parent` also covers the name, and its issuance follows the
+*parent's* CAA set, so the parent needs one too. `facundo.dev` has
+`issuewild ";"` at its apex since 2026-11-27 (it also forbids wildcard
+certificates for every other name of the zone without its own CAA set),
+and `demo/live/caa-check.sh` passes on both lines. In every case the DNS
+operator can change CAA: it is a tripwire together with CT, not a barrier
+against the operator.
 
 CT monitoring is implemented: `demo/live/ct-check.sh` checks that every
 logged certificate valid for the name, including `*.parent` wildcards, has

@@ -16,8 +16,8 @@ Recorded live outputs (2026-11-26, Phala Cloud): `live/smoke.expected.txt`,
 `live/verify-2026.11.4.expected.txt` and `live/verify-2026.11.4-after-restart.expected.txt`
 (2026-11-27; same release before and after a CVM restart, different TLS key),
 `live/ct-check.expected.txt` (2026-11-27, exit 1: Cloudflare wildcards until 2027-01-31),
-`live/caa-check-vault.facundo.dev.expected.txt` (2026-11-27, exit 1: the name's own set passes,
-the parent has no CAA for wildcards),
+`live/caa-check-vault.facundo.dev.expected.txt` (2026-11-27, exit 0: the name's own set passes,
+and the apex `issuewild ";"` forbids wildcards),
 `relay/relay-live.expected.txt`, `tamper/tamper.expected.txt`.
 They are verbatim; the relay transcript was recorded by an earlier verifier
 build whose measurements line read "match the published OS image" before
