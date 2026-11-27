@@ -60,7 +60,7 @@ can check it:
 The server is **stock Vaultwarden, not a fork**. Everything new is a tiny
 sidecar that fetches the signed statement, and a verifier that checks it.
 
-## ⚙️ How it works
+## 🧩 How it works
 
 ```mermaid
 sequenceDiagram
@@ -147,7 +147,7 @@ Plain-language walkthrough of every check: [docs/VERIFY.md](docs/VERIFY.md).
 | **AMD SEV-SNP** (Servury Blackbox) | 🟠 **Built, never run on SNP hardware.** Reproducible guest image boot-tested in QEMU; verifier tested on AMD-signed samples. [Guide](docs/SNP.md), [Servury](docs/SNP_SERVURY.md) |
 | **Self-hosted dstack** (Intel TDX) | ⚪ Runbook only. [Guide](docs/SELF_HOSTING.md) |
 
-## ⚖️ What a PASS proves, and what it doesn't
+## 🧾 What a PASS proves, and what it doesn't
 
 | ✅ A PASS proves | ❌ A PASS does **not** prove |
 |---|---|
@@ -196,7 +196,7 @@ Everything, with what each item means for the claims:
 
 </details>
 
-## 🛠️ Build and test
+## 🧪 Build and test
 
 ```bash
 cargo test --workspace                   # unit tests on recorded fixtures, no network
