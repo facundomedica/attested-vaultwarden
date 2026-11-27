@@ -311,18 +311,22 @@ Not tested:
 * The page opened from `file://` on these two platforms; browsers other
   than the Chromium-based one above.
 
-### Live run against a real deployment: NOT DONE
+### Live run against a real deployment (TDX): done, ends in FAIL on the CT line
 
-`https://vault.facundo.dev` (release 2026.11.3, the first with CORS on
-the attestation endpoint) never answered while this was written (the gateway
-accepted the TCP connection and closed it; the VM was reported stopped), and
-`policy/2026.11.3-phala-dev.toml` did not exist. So **no browser-mode PASS
-has been observed**, in Node or in a browser: the only real TDX quote
-available offline was made for a different `report_data`. Everything up to
-that is tested; the end-to-end PASS, and the claim that a 2026.11.3 server's
-CORS header is sufficient for a real browser, are not.
+Run on 2026-11-27 against `https://vault.facundo.dev` (release
+`2026.11.4-phala-dev`, dstack on Intel TDX), in Node and in a real browser,
+and recorded in `testdata/live-2026-11-27-vault.facundo.dev.json`, which
+both test suites replay offline. Every line is ✓ (fetch through the CORS
+header, nonce, Intel DCAP quote and collateral, `report_data`, measurements,
+RTMR3 replay) **except Certificate Transparency**, so the overall result is
+FAIL. That is the expected outcome on this domain, not a bug: Cloudflare
+wildcard certificates for `*.facundo.dev`, issued before 2026-11-27 with
+keys held outside the VM, stay valid until 2027-01-31
+([docs/VERIFY.md](../docs/VERIFY.md), DECISIONS D-052). **No browser-mode
+overall PASS has been observed on a real TDX deployment**, and none can be
+on this name before those certificates expire.
 
-To do it once the server is up and the policy is in `policy/`:
+To repeat it against a running server whose policy is in `policy/`:
 
 ```bash
 web/build.sh
@@ -332,13 +336,13 @@ curl -s -D - -o /dev/null -H 'Origin: https://example.org' \
   | grep -i access-control-allow-origin
 # 2. headless, real network (Node does not enforce CORS, hence step 1):
 node web/test/run.mjs --live vault.facundo.dev \
-  --record web/testdata/live-2026.11.3.json
+  --record web/testdata/live-<date>-<host>.json
 # 3. the recording now replays offline in both suites:
 node web/test/run.mjs && cargo test -p attested-vw-web
 # 4. in a browser: open web/dist/index.html, press Verify.
 ```
 
-Expect a FAIL on the CT line for the first minutes after a new certificate
+Also expect a FAIL on the CT line for the first minutes after a new certificate
 is issued (Cert Spotter has not indexed it yet).
 
 The user-facing description is in [docs/VERIFY.md](../docs/VERIFY.md) ("Verify from a browser") and the top-level README.
