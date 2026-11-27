@@ -1,4 +1,4 @@
-CT: 7 certificate(s) for vault.facundo.dev (Cert Spotter); 2 attested key(s) known
+CT: 7 certificate(s) for vault.facundo.dev (Cert Spotter); 2 attested key(s) known; 0 expired dropped
   ✗ key never attested  2026-09-04T04:20:26Z  C=US, O=Google Trust Services, CN=WE1  spki 9194edf93c336d94…  *.facundo.dev,facundo.dev
   ✗ key never attested  2026-10-09T00:00:00Z  C=GB, O=Sectigo Limited, CN=Sectigo Public Server Authentication CA DV E36  spki 8858d73c1b89e8b5…  *.facundo.dev,facundo.dev
   ✗ key never attested  2026-10-10T00:00:00Z  C=GB, O=Sectigo Limited, CN=Sectigo Public Server Authentication CA DV E36  spki 84a06575860e3352…  *.facundo.dev,facundo.dev
@@ -6,5 +6,11 @@ CT: 7 certificate(s) for vault.facundo.dev (Cert Spotter); 2 attested key(s) kno
   ✗ key never attested  2026-11-02T09:04:56Z  C=US, O=Google Trust Services, CN=WE1  spki 074a9cb9f1d1fa98…  *.facundo.dev,facundo.dev
   ✓ attested  2026-11-26T16:39:08Z  C=US, O=Let's Encrypt, CN=YE2  spki bcc603a6ba95d56d…  vault.facundo.dev
   ✓ attested  2026-11-26T18:40:40Z  C=US, O=Let's Encrypt, CN=YE2  spki 2879bcfd07b973fb…  vault.facundo.dev
+CT: crt.sh has 2 certificate(s) (precertificates merged); 0 not in Cert Spotter, 5 in Cert Spotter only
+  · Cert Spotter only (crt.sh lags or is incomplete)  2026-10-09T00:00:00Z  spki 8858d73c1b89e8b5…
+  · Cert Spotter only (crt.sh lags or is incomplete)  2026-11-02T07:24:12Z  spki 2b27056f83310ad0…
+  · Cert Spotter only (crt.sh lags or is incomplete)  2026-11-02T09:04:56Z  spki 074a9cb9f1d1fa98…
+  · Cert Spotter only (crt.sh lags or is incomplete)  2026-11-26T16:39:08Z  spki bcc603a6ba95d56d…
+  · Cert Spotter only (crt.sh lags or is incomplete)  2026-11-26T18:40:40Z  spki 2879bcfd07b973fb…
 CT: 5 certificate(s) for keys never seen in a verifier PASS: investigate (or verify the live server and pass its output)
 ct exit 1
