@@ -10,6 +10,7 @@
 
 pub mod evidence;
 pub mod fetch;
+pub mod gcp_cs;
 pub mod net;
 pub mod report;
 pub mod snp;
@@ -152,6 +153,7 @@ async fn verify_once(target: &str, policy: &Policy, opts: &Options) -> Report {
                 ctx.tdx_collateral = fetch::tdx_collateral(&opts.pccs_url, &quote).await
             }
             Platform::SevSnp => ctx.snp_vcek_der = fetch::snp_vcek(&opts.kds_url, &quote).await,
+            Platform::GcpCs => ctx.gcp_jwks = fetch::gcp_jwks().await,
             Platform::Mock => {}
         }
     }
@@ -273,6 +275,13 @@ pub fn check_document(
         );
     }
 
+    // Confidential Space: there is no compose document or event log; what
+    // runs is one image, named by claims in the Google-signed token.
+    if let evidence::Measured::GcpCs(tok) = &verified.measured {
+        gcp_cs::check_claims(tok, policy, report);
+        return;
+    }
+
     // Measurements, event log and the measured compose hash.
     let got_compose = compose::compose_hash(doc.app_compose.as_bytes());
     report.observed.compose_hash_served = Some(hex::encode(got_compose));
@@ -333,12 +342,13 @@ pub fn check_document(
             );
             None
         }
+        evidence::Measured::GcpCs(_) => None, // handled above
     };
 
     let expected_hash = match policy.platform {
         Platform::Mock => policy.mock.as_ref().map(|m| m.compose_hash.as_str()),
         Platform::Tdx => policy.tdx.as_ref().map(|t| t.compose_hash.as_str()),
-        Platform::SevSnp => None,
+        Platform::SevSnp | Platform::GcpCs => None,
     };
     let got_hex = hex::encode(got_compose);
     match (expected_hash, measured_compose) {
@@ -520,6 +530,8 @@ fn check_tdx_measurements(
     }
 }
 
+#[cfg(test)]
+mod gcp_cs_tests;
 #[cfg(test)]
 mod tdx_doc_tests;
 #[cfg(test)]

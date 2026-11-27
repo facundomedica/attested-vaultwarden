@@ -8,12 +8,13 @@
 //!
 //! | Variable | Meaning |
 //! |----------|---------|
-//! | `ATTEST_PLATFORM` | `mock` (INSECURE) or `dstack` (M3) |
+//! | `ATTEST_PLATFORM` | `mock` (INSECURE), `dstack` or `gcp-cs` |
 //! | `ATTEST_INSECURE_MOCK` | must be `1` for `mock` to start |
 //! | `ATTEST_LISTEN` | listen address, default `0.0.0.0:8081` |
 //! | `ATTEST_CERT_PATH` | PEM file whose first certificate is the TLS leaf |
 //! | `ATTEST_APP_COMPOSE_PATH` | measured app-compose document (mock only; dstack reads it from the guest agent) |
 //! | `ATTEST_DSTACK_SOCKET` | guest agent socket, default `/var/run/dstack.sock` |
+//! | `ATTEST_GCP_CS_SOCKET` | Confidential Space launcher socket, default `/run/container_launcher/teeserver.sock` |
 //! | `ATTEST_RATE_PER_SEC` | global request budget per second, default 5 |
 
 #![forbid(unsafe_code)]
@@ -21,6 +22,7 @@
 
 mod app;
 mod dstack;
+mod gcp_cs;
 mod providers;
 
 use std::net::SocketAddr;
@@ -79,6 +81,14 @@ async fn run() -> Result<(), String> {
                 .map_err(|e| format!("reading app-compose from guest agent: {e}"))?;
             let state = app::State::new(provider, cert_path, app_compose, rate)
                 .map_err(|e| format!("app-compose: {e}"))?;
+            app::router(Arc::new(state))
+        }
+        "gcp-cs" => {
+            let socket = std::env::var("ATTEST_GCP_CS_SOCKET")
+                .unwrap_or_else(|_| attested_vw_common::gcp_cs::DEFAULT_SOCKET.to_owned());
+            // No compose document on this platform: the single workload
+            // image is named by the token's claims.
+            let state = app::State::without_compose(gcp_cs::GcpCs::new(socket), cert_path, rate);
             app::router(Arc::new(state))
         }
         other => return Err(format!("unknown ATTEST_PLATFORM `{other}`")),

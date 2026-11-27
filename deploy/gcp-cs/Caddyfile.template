@@ -1,0 +1,21 @@
+# Rendered at image build time (deploy/gcp-cs/Dockerfile); the result is
+# part of the attested image. Same shape as the dstack deployment's.
+{
+	admin off
+}
+__DOMAIN__ {
+	# One pinned issuer, so the sidecar knows where the leaf lives.
+	# TLS-ALPN-01 only: port 80 is not exposed.
+	tls {
+		issuer acme {
+			dir https://__ACME_HOST__/directory
+			disable_http_challenge
+		}
+	}
+	handle /.well-known/tee-attestation {
+		reverse_proxy 127.0.0.1:8081
+	}
+	handle {
+		reverse_proxy 127.0.0.1:8080
+	}
+}

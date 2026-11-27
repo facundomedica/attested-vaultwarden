@@ -55,6 +55,9 @@ pub struct Policy {
     pub tdx: Option<TdxPolicy>,
     #[serde(default)]
     pub sev_snp: Option<SevSnpPolicy>,
+    /// Google Cloud Confidential Space (see [`crate::gcp_cs::GcpCsPolicy`]).
+    #[serde(default)]
+    pub gcp_cs: Option<crate::gcp_cs::GcpCsPolicy>,
     /// INSECURE local mock. Only the compose hash is checked, and nothing
     /// measured it: it exercises the pipeline, it proves nothing.
     #[serde(default)]
@@ -234,6 +237,13 @@ impl Policy {
                     .as_ref()
                     .ok_or_else(|| invalid("sev_snp", "required when platform = \"sev-snp\""))?;
                 check_hex("sev_snp.measurement", &s.measurement, 48)?;
+            }
+            Platform::GcpCs => {
+                let g = self
+                    .gcp_cs
+                    .as_ref()
+                    .ok_or_else(|| invalid("gcp_cs", "required when platform = \"gcp-cs\""))?;
+                g.validate(&self.images)?;
             }
             Platform::Mock => {
                 let m = self

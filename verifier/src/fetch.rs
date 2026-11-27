@@ -22,6 +22,36 @@ pub async fn tdx_collateral(
         .map_err(|e| format!("fetching collateral from {pccs_url}: {e:#}"))
 }
 
+/// Google Cloud Attestation's OIDC signing keys (JWKS, JSON text).
+///
+/// Unlike the vendor collateral above, this document is NOT self-verifying:
+/// it is the trust anchor for `gcp-cs`, authenticated only by WebPKI TLS to
+/// the pinned URL. So the URL is a constant (no override), redirects are
+/// refused and plain HTTP is impossible.
+pub async fn gcp_jwks() -> Result<String, String> {
+    const MAX: usize = 64 * 1024;
+    let url = attested_vw_common::gcp_cs::JWKS_URL;
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .redirect(reqwest::redirect::Policy::none())
+        .https_only(true)
+        .build()
+        .map_err(|e| e.to_string())?;
+    let resp = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| format!("fetching {url}: {e}"))?;
+    if resp.status() != reqwest::StatusCode::OK {
+        return Err(format!("fetching {url}: HTTP {}", resp.status()));
+    }
+    let body = resp.bytes().await.map_err(|e| e.to_string())?;
+    if body.len() > MAX {
+        return Err(format!("{url}: response too large"));
+    }
+    String::from_utf8(body.to_vec()).map_err(|_| format!("{url}: not UTF-8"))
+}
+
 /// VCEK certificate (DER) for an SNP report from AMD KDS
 /// (`/vcek/v1/{product}/{hwid}?blSPL=..&teeSPL=..&snpSPL=..&ucodeSPL=..`,
 /// AMD spec 57230). The product is not encoded in older reports, so Milan

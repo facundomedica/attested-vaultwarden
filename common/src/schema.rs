@@ -32,6 +32,9 @@ pub enum Platform {
     Tdx,
     /// AMD SEV-SNP via Linux configfs-tsm.
     SevSnp,
+    /// Google Cloud Confidential Space: the evidence is a Google Cloud
+    /// Attestation OIDC token, not a raw hardware quote (see `gcp_cs`).
+    GcpCs,
     /// INSECURE software mock. Never accepted unless the verifier is
     /// explicitly told to allow it.
     Mock,
@@ -42,6 +45,7 @@ impl Platform {
         match self {
             Platform::Tdx => "tdx",
             Platform::SevSnp => "sev-snp",
+            Platform::GcpCs => "gcp-cs",
             Platform::Mock => "mock",
         }
     }
@@ -51,7 +55,7 @@ impl Platform {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Evidence {
     /// Base64 (standard alphabet, padded) TDX quote, SEV-SNP attestation
-    /// report, or mock blob.
+    /// report, mock blob, or (gcp-cs) the ASCII bytes of the attestation JWT.
     pub quote: String,
     /// dstack event log (JSON array as returned by the guest agent), used to
     /// replay RTMR3. Absent on platforms without one.
@@ -105,6 +109,8 @@ mod tests {
         let s = serde_json::to_string(&[Platform::Tdx, Platform::SevSnp, Platform::Mock])
             .unwrap_or_default();
         assert_eq!(s, r#"["tdx","sev-snp","mock"]"#);
+        let s = serde_json::to_string(&Platform::GcpCs).unwrap_or_default();
+        assert_eq!(s, r#""gcp-cs""#);
     }
 
     #[test]
