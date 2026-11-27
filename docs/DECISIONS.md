@@ -27,9 +27,13 @@ re-checked before code depends on them.
 
 ## Decisions
 
-### D-001 Licence: MIT OR Apache-2.0
+### D-001 Licence: MIT (was MIT OR Apache-2.0)
 Proposed in the task and in the M0 plan. Applied in M0 (`LICENSE-MIT`,
 `LICENSE-APACHE`, `license` in `Cargo.toml`). Accepted with the M0 review (2026-11-26).
+**Changed 2026-11-27** before the repository went public: MIT only, at the
+owner's choice (`LICENSE`, `license = "MIT"`). Fixtures under
+`verifier/testdata/` copied from Apache-2.0 projects keep their own
+`LICENSE` files.
 
 ### D-002 Workspace layout and toolchain
 Three crates as in the task: `common` (lib), `attest-sidecar` (bin),

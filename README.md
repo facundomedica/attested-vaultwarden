@@ -9,7 +9,7 @@ confidential VM, and let anyone prove, from their own machine, exactly what
 code is answering them.
 
 [![CI](https://github.com/facundomedica/attested-vaultwarden/actions/workflows/ci.yml/badge.svg)](https://github.com/facundomedica/attested-vaultwarden/actions/workflows/ci.yml)
-![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)
+![License: MIT](https://img.shields.io/badge/license-MIT-blue)
 ![Status: research prototype](https://img.shields.io/badge/status-research%20prototype-orange)
 
 [How it works](#-how-it-works) ·
@@ -238,7 +238,7 @@ says `PASS (INSECURE MOCK, proves nothing)` and exits 2.
 
 Found a problem? Report it privately: [SECURITY.md](SECURITY.md).
 
-Dual-licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at
-your option. Vaultwarden, Caddy and the TEE platforms are their own projects
-under their own licenses; this repository only references their published
-images.
+Licensed under [MIT](LICENSE). Test fixtures copied from other projects keep
+their own licenses (see `verifier/testdata/SOURCES.md`). Vaultwarden, Caddy
+and the TEE platforms are their own projects under their own licenses; this
+repository only references their published images.
