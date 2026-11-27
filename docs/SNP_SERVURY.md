@@ -151,7 +151,8 @@ tsm, sev-guest, and what those depend on).
   same set of names, so the sixth start within a week leaves the service
   without a certificate until the limit refills. This is acceptable for a
   7-day demonstration and for nothing else. Persistence is not built
-  (§2.3).
+  (§2.3; [KEEPER.md](KEEPER.md) describes another, also unbuilt, design
+  option).
 * **Network**: `ip=dhcp`, or the kernel's static form as Servury's panel
   suggests it. The first non-loopback interface is used, whatever name the
   line gives. Vaultwarden and the sidecar listen on 127.0.0.1; Caddy
