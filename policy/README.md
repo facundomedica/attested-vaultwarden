@@ -27,9 +27,10 @@ not running published software.
 |---------|----------|------|-----------------|-------------|
 | `2026.11.0-phala-dev` | Phala Cloud, TDX, `tdx.small`, dstack 0.6.5 | off | reproduced with `dstack-mr` ([transcript](2026.11.0-phala-dev.reproduce.txt)) | PASS; relay demo FAIL (D-043) |
 | `2026.11.1-phala-dev` | same | on | same values as 2026.11.0 (same image and VM shape) | PASS; tamper demo FAIL then PASS (D-046) |
+| `2026.11.2-phala-dev` | same | on | same values, reproduced again ([transcript](2026.11.2-phala-dev.reproduce.txt)) | PASS; first with `app_id` pinned and encrypted disk required; wrong `app_id` → FAIL (D-048) |
 
 Each release also has `<release>.app-compose.json`, the exact measured
-document, for review. Both are development releases: private sidecar image,
+document, for review. All are development releases: private sidecar image,
 PCK flags SMT/dynamic platform/cached keys accepted.
 
 ## Measurement tooling

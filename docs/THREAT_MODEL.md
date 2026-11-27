@@ -52,7 +52,7 @@ gateway's certificate, not ours, is what the verifier sees).
 | Adversary | Capabilities assumed | Mitigation | Residual |
 |-----------|----------------------|------------|----------|
 | **A1 Cloud / VPS operator, hypervisor** | Full control of host software, scheduling, device emulation, network, storage. | TDX/SNP memory confidentiality and integrity; dstack encrypted disk and network; attested boot chain. | Physical attacks (R4); rollback of disk (R6); denial of service. |
-| **A2 Holder of disk, snapshots or backups** | Reads and replays any persistent storage. | Data disk LUKS-encrypted with a key the KMS releases only to the measured app; the verifier fails if the RTMR3 `storage-encrypted` event is `0`, and reports "encryption not reported" if the OS image predates the event (dstack < 0.6.5); a policy cannot yet require the event. Backups taken *inside* the guest must be encrypted to a key the operator lacks; host-level snapshots are ciphertext. | Rollback (R6). Any backup tooling added later is in the TCB. |
+| **A2 Holder of disk, snapshots or backups** | Reads and replays any persistent storage. | Data disk LUKS-encrypted with a key the KMS releases only to the measured app; the verifier fails if the RTMR3 `storage-encrypted` event is `0`, and reports "encryption not reported" if the OS image predates the event (dstack < 0.6.5); policies require the event by default (`require_storage_encrypted`). Backups taken *inside* the guest must be encrypted to a key the operator lacks; host-level snapshots are ciphertext. | Rollback (R6). Any backup tooling added later is in the TCB. |
 | **A3 Network attacker** | Intercepts, modifies, replays traffic between users and the service and between components. | TLS terminated inside the guest; WebPKI validation in the verifier. | Mis-issued certificates (R2). |
 | **A4 Service operator (us)** | Chooses what to deploy, holds the deployment credentials, injects secrets, controls DNS and the ACME account, can redeploy at will. | Measurements + compose hash + image allowlist against a public, signed release policy; TLS key generated in-guest; no operator access path in the published config (no SSH, no admin panel, see §5). | DNS and certificate control (R1, R2); unmeasured inputs (§5); publishing a malicious release openly (R3). |
 | **A5 Relay attacker** | Owns a genuine TEE running the published software and forwards its attestation while serving users from a different, non-attested server. | The attested `report_data` commits to the SPKI of the certificate the verifier itself received in the same TLS connection; a relay serving a different key fails C4. | A relay that also holds the in-guest TLS key is impossible unless the key leaks (R4). |
@@ -69,7 +69,21 @@ gateway's certificate, not ours, is what the verifier sees).
   only the in-guest ACME account can obtain certificates (stretch). Per-
   connection verification in clients is future work.
 * **R2 DNS and WebPKI.** The operator controls the domain. WebPKI validation
-  proves domain control, not attestation. Same mitigations as R1.
+  proves domain control, not attestation. Same mitigations as R1, plus
+  Certificate Transparency: `demo/live/ct-check.sh` lists every logged
+  certificate for the domain and flags any whose public key never appeared
+  in a verifier PASS (the verifier binds exactly that SPKI hash into the
+  quote). A certificate issued outside the CVM therefore shows up in CT,
+  detectably, even before anyone is served by it. The check includes
+  wildcard certificates for the parent domain (`*.parent` covers the
+  name). **The demo domain fails it:** `facundo.dev` is on Cloudflare, whose
+  wildcard `*.facundo.dev` certificates (keys held by Cloudflare) are valid
+  for `vault.facundo.dev` (`demo/live/ct-check.expected.txt`, 5 of 7
+  certificates never attested). The per-connection verifier still catches a
+  server using them; the domain-wide CT claim needs a name that no
+  non-attested wildcard covers. CAA cannot fix this here: the name is a
+  CNAME to the Phala gateway (no other records allowed at it), and wildcard
+  issuance follows the parent's CAA, not the name's.
 * **R3 Bugs or malicious logic in the published code.** Attestation proves
   *which* code runs, not that it is good. A release containing a backdoor
   passes verification. Mitigation is social: releases are public, pinned and

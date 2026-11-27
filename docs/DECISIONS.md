@@ -733,3 +733,37 @@ are unchanged, so `SOURCE_DATE_EPOCH` and therefore the reproducible
 sidecar digests are unchanged. Commit IDs changed; references in this log
 and in the policy headers use the new IDs (e.g. the deployed sidecar
 `bf0734c5…` was built from what is now `fa874ea`, previously `f2636a0`).
+
+### D-048 Release 2026.11.2-phala-dev; CAA blocked; CT check covers wildcards (2026-11-27)
+* Sidecar rebuilt from `93761ab` and published (private GHCR,
+  `sha256:19cd2eef…`). The rewritten `fa874ea` still rebuilds to the
+  deployed `sha256:bf0734c5…` (D-047 holds). The local builds had stalled
+  in `load metadata` because Docker Desktop's credential helper hung on a
+  locked keychain; public base images build fine with a credential-free
+  `DOCKER_CONFIG`.
+* CVM `73eb5a7e…` updated in place (`phala deploy --cvm-id`, same flags as
+  2026.11.1, logs on), so the app ID and DNS stayed. The only compose change
+  is the sidecar digest (compose hash `06416521…`). Policy drafted with
+  `bootstrap-policy.sh`, now pinning `app_id = 8a1aa54c…` and
+  `require_storage_encrypted = true`; `measure-tdx.sh` reproduced MRTD and
+  RTMR0-2 again, for the shape the sidecar now serves in `vm_config`
+  ([transcript](../policy/2026.11.2-phala-dev.reproduce.txt)). Live verify
+  → PASS (`demo/live/verify-2026.11.2.expected.txt`); the same policy with
+  a different `app_id` → FAIL. VM stopped afterwards (not deleted).
+* **CAA `accounturi` pinning is not possible on this domain.** The in-CVM
+  account is `https://acme-v02.api.letsencrypt.org/acme/acct/4048885521`
+  (Caddy log). But `vault.facundo.dev` is a CNAME to the Phala gateway,
+  which forbids other records at the name; CAA lookup follows the CNAME (no
+  CAA there) and climbs to `facundo.dev`, where a record would govern every
+  other name of the zone. And it would not help: wildcard issuance for
+  `*.facundo.dev` follows `facundo.dev`'s CAA, and existing wildcards stay
+  valid.
+* **CT check fixed to include wildcards.** Cert Spotter's exact-domain query
+  omits `*.parent` certificates. With them, `vault.facundo.dev` has 7
+  valid-for-name certificates; 5 are Cloudflare Universal SSL wildcards
+  (Google Trust Services, Sectigo; keys held by Cloudflare) and were never
+  attested, so `ct-check.sh` now exits 1
+  (`demo/live/ct-check.expected.txt`). The per-connection verifier is
+  unaffected (it binds the key of the connection it is on). The domain-wide
+  claim needs a dedicated domain without outside wildcards, ideally with
+  CAA pinned at its apex and the name served via A records.

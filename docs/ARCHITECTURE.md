@@ -57,10 +57,21 @@ Rationale:
   `<app_id>-443s.<base_domain>` name with a certificate issued for it, or
   dns-01 with a narrowly scoped token (documented as operator-controlled).
 
-**Stretch:** CAA record with `accounturi` pinned to the in-CVM ACME account
-(dstack-ingress does this with `SET_CAA=true`), so that the operator cannot
-get a certificate for the domain from outside the CVM without a visible DNS
-change. Plus CT monitoring of all certificates for the domain.
+**Stretch, blocked on the demo domain:** CAA record with `accounturi`
+pinned to the in-CVM ACME account (dstack-ingress does this with
+`SET_CAA=true`), so that the operator cannot get a certificate for the
+domain from outside the CVM without a visible DNS change. On Phala the name
+is a CNAME to the gateway, so no CAA record can sit at it; CAA lookup then
+climbs to the parent, where it would govern every other name of that zone.
+And wildcard issuance (`*.parent`, which also covers the name) follows the
+parent's CAA anyway (D-048). It needs a dedicated parent domain, or A
+records instead of the CNAME.
+
+CT monitoring is implemented: `demo/live/ct-check.sh` checks that every
+logged certificate valid for the name, including `*.parent` wildcards, has
+an attested key (Cert Spotter's `pubkey_sha256` against the SPKI hashes in
+verifier PASS outputs). On `vault.facundo.dev` it fails: Cloudflare's
+`*.facundo.dev` certificates (D-048).
 
 ## 3. Attestation flow
 

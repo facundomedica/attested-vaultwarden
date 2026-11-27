@@ -1,7 +1,7 @@
 # Attested Vaultwarden
 
 > **Status: research prototype.** It has run live on Phala Cloud (Intel
-> TDX) for two releases and verified end to end, with relay and tamper
+> TDX) for three releases and verified end to end, with relay and tamper
 > demos; there is no permanent deployment (the demo VM is stopped, so
 > `vault.facundo.dev` is usually offline).
 > Nothing here is production-ready and nothing here is "secure for your
@@ -115,7 +115,8 @@ Step-by-step for non-experts: [docs/VERIFY.md](docs/VERIFY.md).
   published image for the exact VM shape (`policy/measure/`). For both
   live releases all four reproduced exactly
   ([2026.11.0](policy/2026.11.0-phala-dev.reproduce.txt),
-  [2026.11.1](policy/2026.11.1-phala-dev.reproduce.txt)).
+  [2026.11.1](policy/2026.11.1-phala-dev.reproduce.txt),
+  [2026.11.2](policy/2026.11.2-phala-dev.reproduce.txt)).
 * **Phala's KMS is trusted** to release the disk key only to this app; the
   data disk has no rollback protection.
 * **The sidecar image is private** on GHCR in the current deployment; a
@@ -126,8 +127,17 @@ Step-by-step for non-experts: [docs/VERIFY.md](docs/VERIFY.md).
   chain, TCB, guest policy), but there is no SNP deployment, no SNP
   sidecar provider, and an SNP target always FAILs the compose binding
   check, which is not implemented.
-* **Development releases.** Both published policies accept the PCK flags
-  SMT, dynamic platform and cached keys, and pin no `app_id`.
+* **Development releases.** All published policies accept the PCK flags
+  SMT, dynamic platform and cached keys, and run with container logs on
+  except 2026.11.0. From 2026.11.2 policies pin the dstack `app_id` and
+  require the encrypted-disk event.
+* **The demo domain fails the CT check.** `facundo.dev` is on Cloudflare,
+  whose wildcard `*.facundo.dev` certificates are also valid for
+  `vault.facundo.dev` and were never attested
+  ([demo/live/ct-check.expected.txt](demo/live/ct-check.expected.txt)).
+  The verifier still catches a server using them on your connection, but
+  "every certificate for this name is attested" needs a domain with no
+  outside wildcard (THREAT_MODEL R2).
 * **Physical attacks** on TDX memory (TEE.fail, DDRop and similar
   interposers) are out of scope, and they can forge quotes.
 * The published code itself can be wrong. Attestation proves *which* code

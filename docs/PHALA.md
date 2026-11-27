@@ -1,7 +1,8 @@
 # Deploying on Phala Cloud (managed dstack, Intel TDX)
 
-> Status: **executed twice on 2026-11-26** (releases `2026.11.0-phala-dev`
-> and `2026.11.1-phala-dev`, see [DECISIONS.md](DECISIONS.md) D-043, D-046).
+> Status: **executed on 2026-11-26 and 2026-11-27** (releases
+> `2026.11.0-phala-dev`, `2026.11.1-phala-dev` and `2026.11.2-phala-dev`,
+> see [DECISIONS.md](DECISIONS.md) D-043, D-046, D-048).
 > Research prototype: do not store real passwords. Phala facts checked
 > 2026-11-26 (Phala docs, CLI v1.2.9 source; v1.2.8 used, see below; dstack
 > `next`); D-037–D-041. The deployed OS image is dstack 0.6.5.

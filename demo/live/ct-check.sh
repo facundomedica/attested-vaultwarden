@@ -4,7 +4,8 @@
 #
 #   demo/live/ct-check.sh <domain> [verifier-output-file ...]
 #
-# Lists every certificate for <domain> from Cert Spotter's CT search API
+# Lists every certificate valid for <domain> (exact name or a covering
+# *.parent wildcard) from Cert Spotter's CT search API
 # (https://sslmate.com/certspotter/api/, no account needed, rate limited)
 # with its SubjectPublicKeyInfo SHA-256. The verifier binds exactly that
 # value into the TDX quote, and prints it on its TLS line ("leaf SPKI
@@ -23,8 +24,16 @@ if [ "$#" -eq 0 ]; then
 fi
 attested="$(grep -h -o 'leaf SPKI SHA-256 [0-9a-f]\{64\}' "$@" 2>/dev/null | awk '{print $4}' | sort -u)"
 
-json="$(curl -sf --max-time 60 \
-  "https://api.certspotter.com/v1/issuances?domain=$d&expand=dns_names&expand=issuer")"
+api=https://api.certspotter.com/v1/issuances
+q() { curl -sf --max-time 60 "$api?domain=$1&expand=dns_names&expand=issuer"; }
+# Certificates naming <domain> itself, plus wildcard certificates for its
+# parent (*.parent covers <domain>), which the exact-domain query omits.
+json="$(q "$d")"
+parent="${d#*.}"
+if [ "$parent" != "$d" ] && [[ "$parent" == *.* ]]; then
+  wild="$(q "$parent" | jq --arg w "*.$parent" '[.[] | select(.dns_names | index($w))]')"
+  json="$(jq -s 'add | unique_by(.id)' <<<"$json$wild")"
+fi
 n="$(jq length <<<"$json")"
 echo "CT: $n certificate(s) for $d (Cert Spotter); $(wc -w <<<"$attested" | tr -d ' ') attested key(s) known"
 unseen=0
