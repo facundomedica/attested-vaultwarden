@@ -4,7 +4,9 @@
 # sidecar image digest and wraps the result into app-compose.json. dstack
 # measures SHA-256(app-compose.json) into RTMR3 (`compose-hash`), so EVERY
 # behaviour-affecting setting is literal here. Encrypted env values are not
-# measured and are not used (allowed_envs = []).
+# measured: the compose uses none (no variable interpolation). The only one a
+# release may allow is GHCR_READ_TOKEN, read by the pre-launch script of the
+# private-image variant (allowed_envs = ["GHCR_READ_TOKEN"], docs/PHALA.md 1b).
 #
 # TLS: the CVM's port 443 is exposed by the host as raw TCP (vmm `--port
 # tcp:0.0.0.0:443:443`, or dstack-gateway TLS passthrough). Caddy generates
@@ -41,7 +43,11 @@ services:
     ports:
       - "443:443"
     configs:
-      - source: caddyfile
+      # The config name carries a revision that render.sh derives from this
+      # whole file: docker compose keeps a running container when only the
+      # inline content of a config changes, so without it an update would
+      # measure the new Caddyfile and keep serving the old one (D-049).
+      - source: caddyfile___COMPOSE_REV__
         target: /etc/caddy/Caddyfile
     volumes:
       - caddy_data:/data
@@ -64,7 +70,7 @@ services:
       - /var/run/dstack.sock:/var/run/dstack.sock
 
 configs:
-  caddyfile:
+  caddyfile___COMPOSE_REV__:
     content: |
       {
         admin off
@@ -79,6 +85,9 @@ configs:
           }
         }
         handle /.well-known/tee-attestation {
+          # Public evidence, no credentials: let a browser verifier page
+          # on another origin fetch it.
+          header Access-Control-Allow-Origin "*"
           reverse_proxy attest:8081
         }
         handle {

@@ -25,7 +25,13 @@ kp="${3:-none}"; out="${4:-$here/.generated}"
 [[ "$domain" =~ ^[a-z0-9.-]+$ ]] || { echo "bad domain" >&2; exit 1; }
 case "$kp" in none|local|phala|phala-private) ;; *) echo "target must be none, local, phala or phala-private" >&2; exit 1;; esac
 mkdir -p "$out"
+# __COMPOSE_REV__: 12 hex digits of SHA-256 over the template with domain and
+# image filled in. It names the Caddyfile config, so any change to the compose
+# makes docker compose recreate the proxy container (see the template).
+rev="$(sed -e "s|__DOMAIN__|${domain}|g" -e "s|__ATTEST_IMAGE__|${image}|g" \
+  "$here/docker-compose.template.yml" | shasum -a 256 | cut -c1-12)"
 sed -e "s|__DOMAIN__|${domain}|g" -e "s|__ATTEST_IMAGE__|${image}|g" \
+  -e "s|__COMPOSE_REV__|${rev}|g" \
   "$here/docker-compose.template.yml" > "$out/docker-compose.yml"
 if [ "$kp" = phala-private ]; then
   [[ "$image" =~ ^ghcr\.io/([a-z0-9-]+)/ ]] || { echo "phala-private needs a ghcr.io/<user>/ image" >&2; exit 1; }
